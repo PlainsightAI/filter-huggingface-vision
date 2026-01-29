@@ -2,13 +2,13 @@
 # Repo-specific variables
 # ---------------------------------
 
-IMAGE ?= us-west1-docker.pkg.dev/plainsightai-prod/oci/{{REPO_NAME}}
-MODEL_IMAGE ?= us-west1-docker.pkg.dev/plainsightai-prod/oci/{{REPO_NAME_KEBABCASE}}-model
+IMAGE ?= us-west1-docker.pkg.dev/plainsightai-prod/oci/filter-huggingface-vision
+MODEL_IMAGE ?= us-west1-docker.pkg.dev/plainsightai-prod/oci/filter-huggingface-vision-model
 
 # Define these variables for consistency in the repo
-REPO_NAME ?= {{REPO_NAME}}
-REPO_NAME_SNAKECASE ?= {{REPO_NAME_SNAKECASE}}
-REPO_NAME_PASCALCASE ?= {{REPO_NAME_PASCALCASE}}
+REPO_NAME ?= filter-huggingface-vision
+REPO_NAME_SNAKECASE ?= filter_huggingface_vision
+REPO_NAME_PASCALCASE ?= FilterHuggingfaceVision
 
 # Unique pipeline configuration for this repo
 # TODO: Add GAR source support via dlCache

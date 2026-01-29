@@ -13,11 +13,11 @@ services:
     networks:
       - filter-network
 
-  {{REPO_NAME_SNAKECASE}}:
-    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/{{REPO_NAME}}:v0.1.0
+  filter_huggingface_vision:
+    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/filter-huggingface-vision:v0.1.0
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
-      FILTER_ID: {{REPO_NAME_PASCALCASE}}
+      FILTER_ID: FilterHuggingfaceVision
       FILTER_SOURCES: tcp://video_in:5550
       FILTER_OUTPUTS: tcp://*:5552
       FILTER_MQ_LOG: pretty
@@ -43,7 +43,7 @@ services:
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: Webvis
-      FILTER_SOURCES: tcp://{{REPO_NAME_SNAKECASE}}:5552
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552
     volumes:
       - ./cache:/app/cache
       - ./telemetry:/app/telemetry

@@ -3,10 +3,10 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["{{REPO_NAME_SNAKECASE}}"]  # Specify the package directory
+packages = ["filter_huggingface_vision"]  # Specify the package directory
 
 [project]
-name = "{{REPO_NAME_SNAKECASE}}"
+name = "filter_huggingface_vision"
 readme = "README.md"
 requires-python = ">=3.10, <3.13"
 

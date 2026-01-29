@@ -1,4 +1,4 @@
-# {{FILTER_NAME}} Filter
+# Huggingface Vision Filter
 
 **IMPORTANT!** This repo is not meant to be cloned, it is meant to be used as a template for your own repo.
 

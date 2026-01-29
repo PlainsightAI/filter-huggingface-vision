@@ -1,5 +1,5 @@
 # Changelog
-{{FILTER_NAME}} filter release notes
+Huggingface Vision filter release notes
 
 ## [Unreleased]
 
@@ -7,4 +7,4 @@
 ## v0.1.0 - 2025-02-22
 
 ### Added
-- Initial Release: new {{FILTER_NAME}} filter
+- Initial Release: new Huggingface Vision filter

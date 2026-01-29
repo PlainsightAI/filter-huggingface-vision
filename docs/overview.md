@@ -1,10 +1,10 @@
 ---
-title: {{FILTER_NAME}}
+title: Huggingface Vision
 sidebar_label: Overview
 sidebar_position: 1
 ---
 
-The **{{FILTER_NAME}}** filter description
+The **Huggingface Vision** filter description
 The content of this document will be published to production documentation on every production release.
 
 ### ✨ Features

@@ -6,7 +6,7 @@ import os
 import sys
 import unittest
 
-from {{REPO_NAME_SNAKECASE}}.filter import {{REPO_NAME_PASCALCASE}}
+from filter_huggingface_vision.filter import FilterHuggingfaceVision
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,8 @@ VERBOSE   = '-v' in sys.argv or '--verbose' in sys.argv
 LOG_LEVEL = logger.getEffectiveLevel()
 
 
-class Test{{REPO_NAME_PASCALCASE}}(unittest.TestCase):
-    def test_{{REPO_NAME_SNAKECASE}}(self):
+class TestFilterHuggingfaceVision(unittest.TestCase):
+    def test_filter_huggingface_vision(self):
         if VERBOSE and LOG_LEVEL <= logging.WARNING:
             print()
 

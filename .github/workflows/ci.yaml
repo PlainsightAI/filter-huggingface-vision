@@ -4,80 +4,30 @@ on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
-
-  workflow_dispatch:  # allows manual triggering
+  workflow_dispatch:
 
 jobs:
-  run-tests:
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-
-    env:
-      SSH_AUTH_SOCK: /tmp/ssh_agent.sock
-      OPS_GIT_TOKEN: ${{ secrets.OPS_GHA_TOKEN }}
-      TESTMO_URL: ${{ secrets.TESTMO_PLAINSIGHT_URL }}
-      TESTMO_TOKEN: ${{ secrets.TESTMO_PLAINSIGHT_TESTING_API_KEY }}
-
-    steps:
-      - name: Prepare SSH Key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.OPS_SSH_PRIV }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Python Version
-        run: python --version
-
-      - name: Test templatize
-        run: ./templatize
-
-      - name: Authenticate to Google Cloud
-        uses: PlainsightAI/gh-actions/google-cloud-auth@main
-        with:
-          environment: production
-
-      - name: Install dependencies
-        run: make install
-
-      - name: Submit Coverage to Testmo
-        uses: PlainsightAI/Github-Templates/actions/submit-coverage-testmo@main
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          testmo-url: ${{ secrets.TESTMO_PLAINSIGHT_URL }}
-          testmo-token: ${{ secrets.TESTMO_PLAINSIGHT_TESTING_API_KEY }}
-          project-id: 15
-          github-server-url: ${{ github.server_url }}
-          github-repository: ${{ github.repository }}
-          github-run-id: ${{ github.run_id }}
-          github-head-ref: ${{ github.head_ref }}
-
-  publish-docker-image:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: run-tests
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write  # Required for auth with GAR
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build and publish Docker image to GAR
-        uses: PlainsightAI/gh-actions/publish-docker-image@main
-        with:
-          environment: production
+  filter:
+    name: Filter
+    # If your filter uses a protege model, use filter-ci-3.11 instead
+    #   This is due to certain protege depdencies such as the onnx simplifier 
+    #   not supporting Python 3.10 (3.12 support has not been released either
+    #   as of this commit but it's on the way) 
+    uses: PlainsightAI/gh-actions/.github/workflows/filter-ci.yaml@main
+    # uses: PlainsightAI/gh-actions/.github/workflows/filter-ci-3.11.yaml@main
+    with:
+      project_id: 15 # 15 is the ID of the filters testmo project
+    secrets:
+      OPS_SSH_PRIV: ${{ secrets.OPS_SSH_PRIV }}
+      OPS_GHA_TOKEN: ${{ secrets.OPS_GHA_TOKEN }}
+      # JFROG will be removed later
+      JFROG_CI_RW_USER: ${{ secrets.JFROG_CI_RW_USER }}
+      JFROG_CI_RW_API_KEY: ${{ secrets.JFROG_CI_RW_API_KEY }}
+      TESTMO_PLAINSIGHT_URL: ${{ secrets.TESTMO_PLAINSIGHT_URL }}
+      TESTMO_PLAINSIGHT_TESTING_API_KEY: ${{ secrets.TESTMO_PLAINSIGHT_TESTING_API_KEY }}
+      # PAT to sync docs across repos
+      # Fined-grained access tokens currently lack the necessary access
+      GH_DOCS_PUBLISHING_TOKEN: ${{ secrets.GH_DOCS_PUBLISHING_TOKEN }}
