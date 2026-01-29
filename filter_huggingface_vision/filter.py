@@ -18,57 +18,85 @@ def _get_processor_and_model():
 
 
 def _image_from_frame(frame, input_topic):
-    """Extract image and size from frame; return (PIL Image or tensor-friendly, width, height) or (None, 0, 0)."""
+    """Extract image and size from frame; return (PIL Image RGB, width, height) or (None, 0, 0).
+    Uses OpenFilter Frame convention first (frame.rw_bgr.image, like Protege), then fallback to frame.data[topic].
+    """
     try:
         from PIL import Image
         import numpy as np
+        import cv2
     except ImportError:
         return None, 0, 0
 
+    # OpenFilter Frame: image is on the frame (frame.rw_bgr.image), not in frame.data
+    if getattr(frame, "has_image", False) and hasattr(frame, "rw_bgr"):
+        arr = frame.rw_bgr.image  # numpy BGR (H, W, 3)
+        if arr is None:
+            return None, 0, 0
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        h, w = arr.shape[0], arr.shape[1]
+        rgb = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+        return Image.fromarray(rgb.astype(np.uint8)), w, h
+
+    # Fallback: image inside frame.data[input_topic] (e.g. custom pipelines)
     data = getattr(frame, "data", None)
     if data is None:
         return None, 0, 0
-
     if hasattr(data, "get"):
         raw = data.get(input_topic) or data.get("main") or data.get("image")
     else:
         raw = data
-
     if raw is None:
         return None, 0, 0
-
     if hasattr(raw, "size") and hasattr(raw, "mode"):
-        # PIL Image
         w, h = raw.size
-        return raw, w, h
+        return raw.convert("RGB") if raw.mode != "RGB" else raw, w, h
     if hasattr(raw, "shape"):
-        # numpy HWC
-        arr = raw
+        arr = np.asarray(raw)
         if arr.ndim == 2:
             arr = np.stack([arr] * 3, axis=-1)
         h, w = arr.shape[0], arr.shape[1]
-        return Image.fromarray(arr.astype(np.uint8)), w, h
+        if arr.shape[-1] == 3:
+            try:
+                rgb = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+            except Exception:
+                rgb = arr
+        else:
+            rgb = arr
+        return Image.fromarray(rgb.astype(np.uint8)), w, h
 
     return None, 0, 0
 
 
 def _normalize_detections(results, model_config, max_detections):
-    """Convert post_process_object_detection output to schema list; sort by score desc, cap at max_detections."""
+    """Convert post_process_object_detection output to schema list; sort by score desc, cap at max_detections.
+    Accepts both dict (e.g. RT-DETR: result['scores']) and object (e.g. result.scores) format.
+    """
     out = []
-    scores = getattr(results, "scores", None)
-    labels = getattr(results, "labels", None)
-    boxes = getattr(results, "boxes", None)
+    # Support both dict (RTDetrImageProcessor) and object (some other processors) output
+    if hasattr(results, "get") and callable(getattr(results, "get")):
+        scores = results.get("scores")
+        labels = results.get("labels")
+        boxes = results.get("boxes")
+    else:
+        scores = getattr(results, "scores", None)
+        labels = getattr(results, "labels", None)
+        boxes = getattr(results, "boxes", None)
     id2label = getattr(model_config, "id2label", None) or {}
 
     if scores is None or labels is None or boxes is None:
         return out
 
+    def _tolist(x):
+        return x.tolist() if hasattr(x, "tolist") and callable(x.tolist) else list(x)
+
     n = min(len(scores), max_detections * 2)
     combined = list(
         zip(
-            scores.tolist()[:n],
-            labels.tolist()[:n],
-            boxes.tolist()[:n],
+            _tolist(scores)[:n],
+            _tolist(labels)[:n],
+            _tolist(boxes)[:n],
         )
     )
     combined.sort(key=lambda x: -x[0])
@@ -100,47 +128,90 @@ def _normalize_detections(results, model_config, max_detections):
     return out
 
 
-class FilterHuggingfaceVisionConfig(FilterConfig):
-    """Config for HF object detection (model_id + revision required)."""
+def _create_visualization(image_bgr, payload):
+    """Draw detection boxes and labels on a BGR image. Returns BGR numpy array."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return image_bgr.copy() if image_bgr is not None else None
 
-    def __init__(
-        self,
-        *args,
-        model_id=None,
-        revision=None,
-        task="object-detection",
-        threshold=0.3,
-        device="cpu",
-        trust_remote_code=False,
-        max_detections=100,
-        input_topic="main",
-        output_topic="main",
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self.model_id = model_id
-        self.revision = revision
-        self.task = task
-        self.threshold = threshold
-        self.device = device
-        self.trust_remote_code = trust_remote_code
-        self.max_detections = max_detections
-        self.input_topic = input_topic
-        self.output_topic = output_topic
-        # Store in dict so simpledeepcopy (used by Filter.__init__) preserves these
-        self["model_id"] = model_id
-        self["revision"] = revision
-        self["task"] = task
-        self["threshold"] = threshold
-        self["device"] = device
-        self["trust_remote_code"] = trust_remote_code
-        self["max_detections"] = max_detections
-        self["input_topic"] = input_topic
-        self["output_topic"] = output_topic
+    vis_image = image_bgr.copy()
+    detections = payload.get("detections", [])
+    for d in detections:
+        label = d.get("label", "")
+        score = d.get("score", 0.0)
+        box = d.get("box", {})
+        xmin = box.get("xmin", 0)
+        ymin = box.get("ymin", 0)
+        xmax = box.get("xmax", 0)
+        ymax = box.get("ymax", 0)
+        x1, y1, x2, y2 = int(round(xmin)), int(round(ymin)), int(round(xmax)), int(round(ymax))
+        cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        text = f"{label} {score:.2f}"
+        cv2.putText(
+            vis_image, text, (x1, y1 - 6),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2,
+        )
+    return vis_image
+
+
+class FilterHuggingfaceVisionConfig(FilterConfig):
+    """Config for HF object detection (model_id + revision required).
+    Same pattern as FilterProtegeModelConfig: class attributes only, no __init__.
+    Values from variables (e.g. model_id=model_id, revision=revision in the script) are passed
+    as kwargs and stored by dict.__init__(**kwargs). Class attributes below are defaults
+    when the key is missing; dict_without() copy keeps all items so child process gets them.
+    """
+
+    # Visualization options (same pattern as FilterProtegeModel)
+    draw_visualization: bool = False
+    visualization_topic: str = "viz"
+    visualization_alpha: float = 0.7
+    visualization_source_topic: str = None
+    # Model/config
+    model_id: str = None
+    revision: str = None
+    task: str = "object-detection"
+    threshold: float = 0.3
+    device: str = "cpu"
+    trust_remote_code: bool = False
+    max_detections: int = 100
+    input_topic: str = "main"
+    output_topic: str = "main"
 
 
 class FilterHuggingfaceVision(Filter):
-    """Hugging Face Vision filter: object detection via AutoImageProcessor + AutoModelForObjectDetection."""
+    """
+    Filter that uses Hugging Face Transformers for object detection.
+
+    Object detection via AutoImageProcessor + AutoModelForObjectDetection.
+    Supports configurable model_id, revision, threshold, and device.
+
+    Data Signature:
+    --------------
+    The filter returns processed frames with the following data structure:
+
+    Frame data:
+    - Original frame data preserved
+    - Processing results added to frame.data["subjects"]["huggingface_vision"]:
+
+      - task: "object-detection"
+      - model: { id, revision }
+      - image: { width, height }
+      - detections: list of { label, score, box: { format, xmin, ymin, xmax, ymax } }
+
+    Visualization Frame (topic: "viz" when draw_visualization=True):
+    - Image with bounding boxes and labels drawn
+    - frame.data["meta"]: detections, detection_confidence
+
+    Key Features:
+    - Hugging Face object-detection models (model_id + revision required)
+    - Configurable threshold and max_detections
+    - Optional visualization topic (draw_visualization, visualization_topic)
+    - CPU/CUDA device selection
+    - JSON-serializable output (box format: xyxy)
+    """
 
     @classmethod
     def normalize_config(cls, config: FilterHuggingfaceVisionConfig):
@@ -154,6 +225,16 @@ class FilterHuggingfaceVision(Filter):
 
         config = FilterHuggingfaceVisionConfig(
             base,
+            draw_visualization=_get(config, "draw_visualization", False)
+            if _get(config, "draw_visualization") is not None
+            else _get(base, "draw_visualization", False),
+            visualization_topic=_get(config, "visualization_topic", "viz")
+            or _get(base, "visualization_topic", "viz"),
+            visualization_alpha=_get(config, "visualization_alpha", 0.7)
+            if _get(config, "visualization_alpha") is not None
+            else _get(base, "visualization_alpha", 0.7),
+            visualization_source_topic=_get(config, "visualization_source_topic")
+            or _get(base, "visualization_source_topic"),
             model_id=_get(config, "model_id") or _get(base, "model_id"),
             revision=_get(config, "revision") or _get(base, "revision"),
             task=_get(config, "task", "object-detection")
@@ -198,6 +279,7 @@ class FilterHuggingfaceVision(Filter):
         return config
 
     def setup(self, config: FilterHuggingfaceVisionConfig):
+        logger.info("========= Setting up FilterHuggingfaceVision =========")
         import torch
 
         AutoImageProcessor, AutoModelForObjectDetection = _get_processor_and_model()
@@ -238,6 +320,9 @@ class FilterHuggingfaceVision(Filter):
         self._model.eval()
         self._config = config
         self._revision = revision
+        self.draw_visualization = getattr(config, "draw_visualization", False)
+        self.visualization_topic = getattr(config, "visualization_topic", "viz")
+        self.visualization_source_topic = getattr(config, "visualization_source_topic", None)
 
         logger.info(
             "filter_huggingface_vision loaded model_id=%s revision=%s device=%s",
@@ -247,10 +332,12 @@ class FilterHuggingfaceVision(Filter):
         )
 
     def shutdown(self):
+        logger.info("========= Shutting down FilterHuggingfaceVision =========")
         self._model = None
         self._image_processor = None
         self._config = None
         self._revision = None
+        logger.info("FilterHuggingfaceVision shutdown complete.")
 
     def process(self, frames: dict[str, Frame]):
         import torch
@@ -264,7 +351,10 @@ class FilterHuggingfaceVision(Filter):
         max_detections = getattr(config, "max_detections", 100)
         model_id = config.model_id
 
-        for frame in frames.values():
+        main_frame_payload = None
+        main_frame_for_viz = None
+
+        for frame_id, frame in frames.items():
             image, width, height = _image_from_frame(frame, input_topic)
             if image is None:
                 continue
@@ -294,6 +384,27 @@ class FilterHuggingfaceVision(Filter):
             if "subjects" not in frame.data:
                 frame.data["subjects"] = {}
             frame.data["subjects"]["huggingface_vision"] = payload
+
+            if main_frame_payload is None:
+                main_frame_payload = payload
+                main_frame_for_viz = frame
+
+        # Visualization topic (same pattern as FilterProtegeModel)
+        if getattr(self, "draw_visualization", False) and main_frame_payload and main_frame_for_viz is not None:
+            viz_topic = getattr(self, "visualization_topic", "viz")
+            src_topic = getattr(self, "visualization_source_topic", None)
+            image_bgr = None
+            if src_topic and src_topic in frames and frames[src_topic] is not None and getattr(frames[src_topic], "has_image", False):
+                image_bgr = frames[src_topic].rw_bgr.image
+            if image_bgr is None and main_frame_for_viz is not None and getattr(main_frame_for_viz, "has_image", False):
+                image_bgr = main_frame_for_viz.rw_bgr.image
+            if image_bgr is not None:
+                vis_image = _create_visualization(image_bgr, main_frame_payload)
+                viz_meta = {"meta": {"detections": main_frame_payload.get("detections", []), "detection_confidence": 0.0}}
+                if main_frame_payload.get("detections"):
+                    scores = [d.get("score", 0) for d in main_frame_payload["detections"]]
+                    viz_meta["meta"]["detection_confidence"] = sum(scores) / len(scores)
+                frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
 
         return frames
 

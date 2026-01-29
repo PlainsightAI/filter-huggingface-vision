@@ -18,6 +18,7 @@ Required environment variables (e.g. in .env):
 Optional environment variables:
     THRESHOLD: Detection confidence threshold in [0,1] (default: 0.3)
     PORT: Webvis port (default: 8010)
+    DRAW_VISUALIZATION: If "true", add a "viz" topic with bounding boxes drawn (default: false)
 
 Example .env:
     MODEL_ID=PekingU/rtdetr_r50vd
@@ -72,20 +73,18 @@ if __name__ == "__main__":
         )
 
     threshold = float(os.getenv("THRESHOLD", "0.3"))
-    port = int(os.getenv("PORT", "8010"))
 
     print("Running Object Detection Pipeline (Hugging Face Vision)")
     print(f"Video source: {video_path}")
     print(f"Model: {model_id} @ {revision}")
     print("Pipeline: VideoIn → FilterHuggingfaceVision (Object Detection) → Webvis")
-    print(f"Web visualization: http://localhost:{port}")
 
     Filter.run_multi(
         [
             (
                 VideoIn,
                 dict(
-                    sources=f"file://{video_path}",
+                    sources=f"file://{video_path}!loop",
                     outputs="tcp://*:5550",
                 ),
             ),
@@ -99,14 +98,16 @@ if __name__ == "__main__":
                     revision=revision,
                     task="object-detection",
                     threshold=threshold,
+                    draw_visualization=True,
+                    visualization_topic="viz",
                 ),
             ),
             (
                 Webvis,
                 dict(
                     id="webvis",
-                    sources="tcp://localhost:5552",
-                    port=port,
+                    sources="tcp://localhost:5552;main,tcp://localhost:5552;viz",
+                    port=8010,
                 ),
             ),
         ]
