@@ -1,35 +1,73 @@
 #!/usr/bin/env python
+"""Simple tests for CI: config validation only (no model download)."""
 
-import logging
-import multiprocessing
 import os
-import sys
 import unittest
 
-from filter_huggingface_vision.filter import FilterHuggingfaceVision
-
-logger = logging.getLogger(__name__)
-
-logger.setLevel(int(getattr(logging, (os.getenv('LOG_LEVEL') or 'INFO').upper())))
-
-VERBOSE   = '-v' in sys.argv or '--verbose' in sys.argv
-LOG_LEVEL = logger.getEffectiveLevel()
+from filter_huggingface_vision.filter import (
+    FilterHuggingfaceVision,
+    FilterHuggingfaceVisionConfig,
+)
 
 
 class TestFilterHuggingfaceVision(unittest.TestCase):
-    def test_filter_huggingface_vision(self):
-        if VERBOSE and LOG_LEVEL <= logging.WARNING:
-            print()
+    """Fast tests: config validation only. No model download."""
 
-        # TODO: test here
+    def test_normalize_config_rejects_empty_revision(self):
+        with self.assertRaises(ValueError) as ctx:
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="PekingU/rtdetr_r50vd",
+                    revision="",
+                )
+            )
+        self.assertIn("revision", str(ctx.exception).lower())
 
-        pass
+    def test_normalize_config_rejects_invalid_threshold(self):
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="x",
+                    revision="main",
+                    threshold=1.5,
+                )
+            )
+
+    def test_normalize_config_rejects_wrong_task(self):
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="x",
+                    revision="main",
+                    task="image-classification",
+                )
+            )
+
+    def test_normalize_config_accepts_valid_config(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="PekingU/rtdetr_r50vd",
+                revision="main",
+                threshold=0.3,
+            )
+        )
+        self.assertEqual(config.model_id, "PekingU/rtdetr_r50vd")
+        self.assertEqual(config.revision, "main")
+        self.assertEqual(config.task, "object-detection")
+        self.assertEqual(config.threshold, 0.3)
 
 
-try:
-    multiprocessing.set_start_method('spawn')  # CUDA doesn't like fork()
-except Exception:
-    pass
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
