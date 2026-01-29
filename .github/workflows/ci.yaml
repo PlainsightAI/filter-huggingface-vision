@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:  # allows manual triggering
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+
+    env:
+      SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+      OPS_GIT_TOKEN: ${{ secrets.OPS_GHA_TOKEN }}
+      TESTMO_URL: ${{ secrets.TESTMO_PLAINSIGHT_URL }}
+      TESTMO_TOKEN: ${{ secrets.TESTMO_PLAINSIGHT_TESTING_API_KEY }}
+
+    steps:
+      - name: Prepare SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.OPS_SSH_PRIV }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python Version
+        run: python --version
+
+      - name: Test templatize
+        run: ./templatize
+
+      - name: Authenticate to Google Cloud
+        uses: PlainsightAI/gh-actions/google-cloud-auth@main
+        with:
+          environment: production
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Submit Coverage to Testmo
+        uses: PlainsightAI/Github-Templates/actions/submit-coverage-testmo@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          testmo-url: ${{ secrets.TESTMO_PLAINSIGHT_URL }}
+          testmo-token: ${{ secrets.TESTMO_PLAINSIGHT_TESTING_API_KEY }}
+          project-id: 15
+          github-server-url: ${{ github.server_url }}
+          github-repository: ${{ github.repository }}
+          github-run-id: ${{ github.run_id }}
+          github-head-ref: ${{ github.head_ref }}
+
+  publish-docker-image:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: run-tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for auth with GAR
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and publish Docker image to GAR
+        uses: PlainsightAI/gh-actions/publish-docker-image@main
+        with:
+          environment: production

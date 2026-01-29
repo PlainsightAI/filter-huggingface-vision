@@ -1,0 +1,9 @@
+{
+  "label": "{{FILTER_NAME}}",
+  "link": {
+    "type": "generated-index",
+    "title": "{{FILTER_NAME}}",
+    "description": "{{FILTER_NAME}} description",
+    "slug": "/{{REPO_NAME_KEBABCASE}}"
+  }
+}
