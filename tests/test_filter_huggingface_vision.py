@@ -39,7 +39,7 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
                 )
             )
 
-    def test_normalize_config_rejects_wrong_task(self):
+    def test_normalize_config_rejects_unknown_detection_type(self):
         with self.assertRaises(ValueError):
             FilterHuggingfaceVision.normalize_config(
                 FilterHuggingfaceVisionConfig(
@@ -48,7 +48,7 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
                     outputs="",
                     model_id="x",
                     revision="main",
-                    task="image-classification",
+                    detection_type="image-classification",
                 )
             )
 
@@ -65,10 +65,10 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
         )
         self.assertEqual(config.model_id, "PekingU/rtdetr_r50vd")
         self.assertEqual(config.revision, "main")
-        self.assertEqual(config.task, "object-detection")
+        self.assertEqual(config.detection_type, "closed-vocabulary")
         self.assertEqual(config.threshold, 0.3)
 
-    def test_normalize_config_zero_shot_requires_text_labels(self):
+    def test_normalize_config_open_vocabulary_requires_text_labels(self):
         with self.assertRaises(ValueError) as ctx:
             FilterHuggingfaceVision.normalize_config(
                 FilterHuggingfaceVisionConfig(
@@ -77,12 +77,12 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
                     outputs="",
                     model_id="google/owlvit-base-patch32",
                     revision="main",
-                    task="zero-shot-object-detection",
+                    detection_type="open-vocabulary",
                 )
             )
         self.assertIn("text_labels", str(ctx.exception).lower())
 
-    def test_normalize_config_accepts_zero_shot_with_text_labels(self):
+    def test_normalize_config_accepts_open_vocabulary_with_text_labels(self):
         config = FilterHuggingfaceVision.normalize_config(
             FilterHuggingfaceVisionConfig(
                 id="test",
@@ -90,11 +90,11 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
                 outputs="",
                 model_id="google/owlvit-base-patch32",
                 revision="main",
-                task="zero-shot-object-detection",
+                detection_type="open-vocabulary",
                 text_labels=[["a photo of a cat", "a photo of a dog"]],
             )
         )
-        self.assertEqual(config.task, "zero-shot-object-detection")
+        self.assertEqual(config.detection_type, "open-vocabulary")
         self.assertEqual(len(config.text_labels), 1)
         self.assertIn("cat", config.text_labels[0][0])
 

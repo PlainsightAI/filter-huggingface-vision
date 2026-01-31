@@ -55,7 +55,7 @@ if __name__ == "__main__":
                     outputs="tcp://*:5552",
                     model_id=MODEL_ID,
                     revision=REVISION,
-                    task="zero-shot-object-detection",
+                    detection_type="open-vocabulary",
                     text_labels=TEXT_LABELS,
                     threshold=threshold,
                     draw_visualization=True,

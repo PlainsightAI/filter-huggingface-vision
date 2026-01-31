@@ -4,11 +4,11 @@
 [![Docker Version](https://img.shields.io/docker/v/plainsightai/openfilter-huggingface-vision?sort=semver)](https://hub.docker.com/r/plainsightai/openfilter-huggingface-vision)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/PlainsightAI/filter-huggingface-vision/blob/main/LICENSE)
 
-A generic filter that uses Hugging Face Transformers for vision tasks (object detection, zero-shot object detection) across video streams and OpenFilter pipelines. The filter uses a backend per task so multiple model interfaces (AutoImageProcessor, OwlViTProcessor, etc.) are supported with a single config and unified output format.
+A generic filter that uses Hugging Face Transformers for vision (closed-vocabulary and open-vocabulary object detection) across video streams and OpenFilter pipelines. The filter uses a backend per detection type so multiple model interfaces (AutoImageProcessor, OwlViTProcessor, etc.) are supported with a single config and unified output format.
 
 ## Features
 
-- **Multiple tasks**: `object-detection` (DETR, RT-DETR, Conditional DETR) and `zero-shot-object-detection` (OWL-ViT) via pluggable backends
+- **Detection types**: `closed-vocabulary` (DETR, RT-DETR, Conditional DETR) and `open-vocabulary` (OWL-ViT) via pluggable backends
 - **Object Detection**: Run Hugging Face object-detection models with configurable `model_id`, `revision`, `threshold`, and `max_detections`
 - **Zero-shot detection**: OWL-ViT with `text_labels` (list of list of str) for open-vocabulary queries
 - **Standardized Output**: JSON-serializable detections with label, score, and box (xyxy format) in `frame.data["subjects"]["huggingface_vision"]`
@@ -27,7 +27,7 @@ The filter follows the OpenFilter pattern with three main stages:
 
 | Stage | Responsibility |
 |-------|----------------|
-| `setup()` | Parse and validate configuration; resolve backend by `task`, load processor and model; set device |
+| `setup()` | Parse and validate configuration; resolve backend by `detection_type`, load processor and model; set device |
 | `process()` | Core operation: run backend inference on frame images, attach results, optionally produce visualization frame |
 | `shutdown()` | Clean up resources (unload backend/model) when filter stops |
 
@@ -38,7 +38,7 @@ The filter returns processed frames with the following data structure:
 **Main Frame Data:**
 - Original frame data preserved
 - Processing results added to `frame.data["subjects"]["huggingface_vision"]`:
-  - `task`: `"object-detection"` or `"zero-shot-object-detection"`
+  - `detection_type`: `"closed-vocabulary"` or `"open-vocabulary"` (payload also includes legacy `task` key)
   - `model`: `{ "id": "<model_id>", "revision": "<revision>" }`
   - `image`: `{ "width": int, "height": int }`
   - `detections`: list of `{ "label": str, "score": float, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
@@ -86,7 +86,7 @@ PORT=8010
 |----------|------|---------|----------|-------|
 | `model_id` | string | — | Yes | Hugging Face model id (e.g. PekingU/rtdetr_r50vd) |
 | `revision` | string | — | Yes | Model revision (reproducibility) |
-| `task` | string | "object-detection" | No | `object-detection` or `zero-shot-object-detection` |
+| `detection_type` | string | "closed-vocabulary" | No | `closed-vocabulary` or `open-vocabulary` |
 | `text_labels` | list | — | For zero-shot | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
 | `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] |
 | `device` | string | "cpu" | No | "cpu" or "cuda" / cuda device index |
@@ -111,19 +111,19 @@ python scripts/object_detection_pipeline.py
 
 This will:
 1. Load video from `VIDEO_PATH`
-2. Run Hugging Face object detection on each frame (task=`object-detection`)
+2. Run Hugging Face object detection on each frame (`detection_type=closed-vocabulary`)
 3. Serve visualization at `http://localhost:8010` (or `PORT`); subscribe to `main` and `viz` when `DRAW_VISUALIZATION` is enabled
 
 ### Zero-shot object detection (OWL-ViT)
 
-Use task `zero-shot-object-detection` with a model like `google/owlvit-base-patch32` and provide `text_labels` (list of list of str) for open-vocabulary queries:
+Use `detection_type="open-vocabulary"` with a model like `google/owlvit-base-patch32` and provide `text_labels` (list of list of str):
 
 ```python
 from filter_huggingface_vision.filter import FilterHuggingfaceVision, FilterHuggingfaceVisionConfig
 
 FilterHuggingfaceVisionConfig(
     ...
-    task="zero-shot-object-detection",
+    detection_type="open-vocabulary",
     model_id="google/owlvit-base-patch32",
     revision="main",
     text_labels=[["a photo of a cat", "a photo of a dog"]],
@@ -131,7 +131,7 @@ FilterHuggingfaceVisionConfig(
 )
 ```
 
-Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `task`, `model`, `image`, and `detections` (label, score, box).
+Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`, and `detections` (label, score, box).
 
 ### Using Makefile
 
@@ -156,7 +156,7 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
 
 ```json
 {
-  "task": "object-detection",
+  "detection_type": "closed-vocabulary",
   "model": { "id": "PekingU/rtdetr_r50vd", "revision": "main" },
   "image": { "width": 1920, "height": 1080 },
   "detections": [

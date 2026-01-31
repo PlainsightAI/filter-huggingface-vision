@@ -108,7 +108,7 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Model/config
     model_id: str = None
     revision: str = None
-    task: str = "object-detection"
+    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary"
     threshold: float = 0.3
     device: str = "cpu"
     trust_remote_code: bool = False
@@ -134,7 +134,7 @@ class FilterHuggingfaceVision(Filter):
     - Original frame data preserved
     - Processing results added to frame.data["subjects"]["huggingface_vision"]:
 
-      - task: "object-detection"
+      - detection_type: "closed-vocabulary" | "open-vocabulary" (task kept for backward compat)
       - model: { id, revision }
       - image: { width, height }
       - detections: list of { label, score, box: { format, xmin, ymin, xmax, ymax } }
@@ -175,8 +175,8 @@ class FilterHuggingfaceVision(Filter):
             or _get(base, "visualization_source_topic"),
             model_id=_get(config, "model_id") or _get(base, "model_id"),
             revision=_get(config, "revision") or _get(base, "revision"),
-            task=_get(config, "task", "object-detection")
-            or _get(base, "task", "object-detection"),
+            detection_type=_get(config, "detection_type", "closed-vocabulary")
+            or _get(base, "detection_type", "closed-vocabulary"),
             threshold=_get(config, "threshold", 0.3)
             if _get(config, "threshold") is not None
             else (_get(base, "threshold", 0.3)),
@@ -204,14 +204,14 @@ class FilterHuggingfaceVision(Filter):
         if not isinstance(t, (int, float)) or t < 0 or t > 1:
             raise ValueError("threshold must be a number in [0, 1].")
 
-        task = getattr(config, "task", "object-detection")
-        get_backend(task)  # validate task is registered
+        detection_type = getattr(config, "detection_type", "closed-vocabulary")
+        get_backend(detection_type)  # validate detection_type is registered
 
-        if task == "zero-shot-object-detection":
+        if detection_type == "open-vocabulary":
             tl = _get(config, "text_labels") or _get(base, "text_labels")
             if not tl or not isinstance(tl, (list, tuple)) or not tl:
                 raise ValueError(
-                    "task='zero-shot-object-detection' requires text_labels "
+                    "detection_type='open-vocabulary' requires text_labels "
                     "(list of list of str, e.g. [['a photo of a cat', 'a photo of a dog']])."
                 )
             if not isinstance(tl[0], (list, tuple)):
@@ -228,8 +228,8 @@ class FilterHuggingfaceVision(Filter):
 
     def setup(self, config: FilterHuggingfaceVisionConfig):
         logger.info("========= Setting up FilterHuggingfaceVision =========")
-        task = getattr(config, "task", "object-detection")
-        backend_class = get_backend(task)
+        detection_type = getattr(config, "detection_type", "closed-vocabulary")
+        backend_class = get_backend(detection_type)
         self._backend = backend_class()
         self._backend.load(config)
         self._config = config
@@ -238,8 +238,8 @@ class FilterHuggingfaceVision(Filter):
         self.visualization_topic = getattr(config, "visualization_topic", "viz")
         self.visualization_source_topic = getattr(config, "visualization_source_topic", None)
         logger.info(
-            "filter_huggingface_vision loaded task=%s model_id=%s revision=%s",
-            task,
+            "filter_huggingface_vision loaded detection_type=%s model_id=%s revision=%s",
+            detection_type,
             getattr(config, "model_id"),
             self._revision,
         )
@@ -259,7 +259,7 @@ class FilterHuggingfaceVision(Filter):
 
         config = self._config
         input_topic = getattr(config, "input_topic", "main")
-        task = getattr(config, "task", "object-detection")
+        detection_type = getattr(config, "detection_type", "closed-vocabulary")
         model_id = getattr(config, "model_id", "")
 
         main_frame_payload = None
@@ -271,8 +271,11 @@ class FilterHuggingfaceVision(Filter):
                 continue
 
             detections = self._backend.run(image, width, height, config)
+            # task: legacy key for backward compatibility (same values as before)
+            _task = "object-detection" if detection_type == "closed-vocabulary" else "zero-shot-object-detection"
             payload = {
-                "task": task,
+                "detection_type": detection_type,
+                "task": _task,
                 "model": {"id": model_id, "revision": self._revision},
                 "image": {"width": width, "height": height},
                 "detections": detections,

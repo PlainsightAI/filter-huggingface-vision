@@ -28,7 +28,7 @@ Example .env:
     PORT=8010
 
 Output:
-    frame.data["subjects"]["huggingface_vision"] with task, model, image, detections (label, score, box xyxy).
+    frame.data["subjects"]["huggingface_vision"] with detection_type, model, image, detections (label, score, box xyxy).
 """
 
 import os
@@ -96,7 +96,7 @@ if __name__ == "__main__":
                     outputs="tcp://*:5552",
                     model_id=model_id,
                     revision=revision,
-                    task="object-detection",
+                    detection_type="closed-vocabulary",
                     threshold=threshold,
                     draw_visualization=True,
                     visualization_topic="viz",

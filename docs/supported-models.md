@@ -1,21 +1,21 @@
-# Supported models by task
+# Supported models by detection type
 
-The filter supports multiple tasks via backends. Each task uses a different processor/model API. Output format is the same for all tasks: `frame.data["subjects"]["huggingface_vision"]` with `task`, `model`, `image`, and `detections` (label, score, box xyxy).
+The filter supports two detection variants via backends; each uses a different processor/model API. Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`, and `detections` (label, score, box xyxy). Config uses `detection_type`: `"closed-vocabulary"` or `"open-vocabulary"`.
 
 ## Pipelines
 
-| Script | Task | Model source |
-|--------|------|--------------|
-| `scripts/object_detection_pipeline.py` | object-detection | `MODEL_ID` + `REVISION` from .env |
-| `scripts/zero_shot_object_detection_pipeline.py` | zero-shot-object-detection | Fixed in code: `google/owlvit-base-patch32` @ main |
+| Script | Detection type | Model source |
+|--------|----------------|--------------|
+| `scripts/object_detection_pipeline.py` | Closed-vocabulary (DETR / RT-DETR) | `MODEL_ID` + `REVISION` from .env |
+| `scripts/zero_shot_object_detection_pipeline.py` | Open-vocabulary (OWL-ViT) | Fixed in code: `google/owlvit-base-patch32` @ main |
 
 The zero-shot script ignores `MODEL_ID`/`REVISION` in .env so the same .env (e.g. with `VIDEO_PATH`) can be shared without loading the wrong model.
 
 ---
 
-## task: object-detection
+## Closed-vocabulary object detection (DETR / RT-DETR)
 
-Backend: `AutoImageProcessor` + `AutoModelForObjectDetection` (DETR, RT-DETR, Conditional DETR).  
+Fixed set of classes (e.g. COCO). Backend: `AutoImageProcessor` + `AutoModelForObjectDetection` (DETR, RT-DETR, Conditional DETR).  
 **Dependency:** `timm` (for DETR/Conditional DETR backbones).
 
 | MODEL_ID | REVISION |
@@ -36,23 +36,23 @@ VIDEO_PATH=./filter_example_video.mp4
 
 ---
 
-## task: zero-shot-object-detection
+## Open-vocabulary object detection (OWL-ViT)
 
-Backend: `OwlViTProcessor` + `OwlViTForObjectDetection` (open-vocabulary detection with text queries).  
+Text queries at inference; no fixed class set. Backend: `OwlViTProcessor` + `OwlViTForObjectDetection`.  
 **Dependency:** `sentencepiece` (for OWL-ViT tokenizer).
 
 | MODEL_ID | REVISION |
 |----------|----------|
 | google/owlvit-base-patch32 | main |
 
-- **text_labels**: list of list of str (e.g. one list per image). Required when using this task.
+- **text_labels**: list of list of str (e.g. one list per image). Required for zero-shot.
 - The script `zero_shot_object_detection_pipeline.py` uses a fixed model and `TEXT_LABELS` in code; only `VIDEO_PATH` (and optionally `THRESHOLD`, `PORT`) are read from .env.
 
-### Example config (zero-shot, in code)
+### Example config (open-vocabulary, in code)
 
 ```python
 FilterHuggingfaceVisionConfig(
-    task="zero-shot-object-detection",
+    detection_type="open-vocabulary",
     model_id="google/owlvit-base-patch32",
     revision="main",
     text_labels=[["a person", "a cup"]],
