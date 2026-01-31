@@ -68,6 +68,36 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
         self.assertEqual(config.task, "object-detection")
         self.assertEqual(config.threshold, 0.3)
 
+    def test_normalize_config_zero_shot_requires_text_labels(self):
+        with self.assertRaises(ValueError) as ctx:
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="google/owlvit-base-patch32",
+                    revision="main",
+                    task="zero-shot-object-detection",
+                )
+            )
+        self.assertIn("text_labels", str(ctx.exception).lower())
+
+    def test_normalize_config_accepts_zero_shot_with_text_labels(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="google/owlvit-base-patch32",
+                revision="main",
+                task="zero-shot-object-detection",
+                text_labels=[["a photo of a cat", "a photo of a dog"]],
+            )
+        )
+        self.assertEqual(config.task, "zero-shot-object-detection")
+        self.assertEqual(len(config.text_labels), 1)
+        self.assertIn("cat", config.text_labels[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()
