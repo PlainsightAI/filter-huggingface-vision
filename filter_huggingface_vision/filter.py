@@ -310,6 +310,13 @@ class FilterHuggingfaceVision(Filter):
             self._model = AutoModelForObjectDetection.from_pretrained(
                 model_id, revision=revision, trust_remote_code=trust_remote_code
             )
+        except ImportError as e:
+            if "timm" in str(e).lower():
+                raise ImportError(
+                    f"DETR/Conditional DETR models (e.g. {model_id}) require the timm library. "
+                    "Install it with: pip install timm"
+                ) from e
+            raise
         except Exception as e:
             raise RuntimeError(
                 f"Model {model_id} (revision={revision}) is not compatible with AutoImageProcessor + AutoModelForObjectDetection. "
