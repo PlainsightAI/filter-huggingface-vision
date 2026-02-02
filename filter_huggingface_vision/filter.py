@@ -207,11 +207,11 @@ class FilterHuggingfaceVision(Filter):
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
 
-        if detection_type == "open-vocabulary":
+        if detection_type == "open-vocabulary" or detection_type == "open-vocabulary-grounding":
             tl = _get(config, "text_labels") or _get(base, "text_labels")
             if not tl or not isinstance(tl, (list, tuple)) or not tl:
                 raise ValueError(
-                    "detection_type='open-vocabulary' requires text_labels "
+                    f"detection_type='{detection_type}' requires text_labels "
                     "(list of list of str, e.g. [['a photo of a cat', 'a photo of a dog']])."
                 )
             if not isinstance(tl[0], (list, tuple)):
@@ -272,7 +272,11 @@ class FilterHuggingfaceVision(Filter):
 
             detections = self._backend.run(image, width, height, config)
             # task: legacy key for backward compatibility (same values as before)
-            _task = "object-detection" if detection_type == "closed-vocabulary" else "zero-shot-object-detection"
+            _task = (
+                "object-detection"
+                if detection_type == "closed-vocabulary"
+                else "zero-shot-object-detection"
+            )
             payload = {
                 "detection_type": detection_type,
                 "task": _task,

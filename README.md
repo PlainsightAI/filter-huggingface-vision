@@ -8,9 +8,10 @@ A generic filter that uses Hugging Face Transformers for vision (closed-vocabula
 
 ## Features
 
-- **Detection types**: `closed-vocabulary` (DETR, RT-DETR, Conditional DETR) and `open-vocabulary` (OWL-ViT) via pluggable backends
+- **Detection types**: `closed-vocabulary` (DETR, RT-DETR), `open-vocabulary` (OWL-ViT), and `open-vocabulary-grounding` (Grounding DINO) via pluggable backends
 - **Object Detection**: Run Hugging Face object-detection models with configurable `model_id`, `revision`, `threshold`, and `max_detections`
 - **Zero-shot detection**: OWL-ViT with `text_labels` (list of list of str) for open-vocabulary queries
+- **Grounding DINO**: Open-vocabulary detection with Grounding DINO / MM Grounding DINO (`AutoProcessor` + `AutoModelForZeroShotObjectDetection`) and `text_labels`
 - **Standardized Output**: JSON-serializable detections with label, score, and box (xyxy format) in `frame.data["subjects"]["huggingface_vision"]`
 - **Visualization**: Optional topic (e.g. `viz`) with bounding boxes and labels drawn on the image
 - **Frame Input**: Uses OpenFilter Frame convention (`frame.rw_bgr.image`); fallback to `frame.data[topic]` for custom pipelines
@@ -38,7 +39,7 @@ The filter returns processed frames with the following data structure:
 **Main Frame Data:**
 - Original frame data preserved
 - Processing results added to `frame.data["subjects"]["huggingface_vision"]`:
-  - `detection_type`: `"closed-vocabulary"` or `"open-vocabulary"` (payload also includes legacy `task` key)
+  - `detection_type`: `"closed-vocabulary"`, `"open-vocabulary"`, or `"open-vocabulary-grounding"` (payload also includes legacy `task` key)
   - `model`: `{ "id": "<model_id>", "revision": "<revision>" }`
   - `image`: `{ "width": int, "height": int }`
   - `detections`: list of `{ "label": str, "score": float, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
@@ -86,8 +87,8 @@ PORT=8010
 |----------|------|---------|----------|-------|
 | `model_id` | string | — | Yes | Hugging Face model id (e.g. PekingU/rtdetr_r50vd) |
 | `revision` | string | — | Yes | Model revision (reproducibility) |
-| `detection_type` | string | "closed-vocabulary" | No | `closed-vocabulary` or `open-vocabulary` |
-| `text_labels` | list | — | For zero-shot | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
+| `detection_type` | string | "closed-vocabulary" | No | `closed-vocabulary`, `open-vocabulary`, or `open-vocabulary-grounding` |
+| `text_labels` | list | — | For zero-shot / grounding | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
 | `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] |
 | `device` | string | "cpu" | No | "cpu" or "cuda" / cuda device index |
 | `max_detections` | int | 100 | No | Maximum number of detections per frame |
@@ -106,7 +107,7 @@ Run the pipeline (VideoIn → FilterHuggingfaceVision → Webvis):
 
 ```bash
 # Ensure MODEL_ID, REVISION, and VIDEO_PATH are set (e.g. in .env)
-python scripts/object_detection_pipeline.py
+python scripts/object_detection.py
 ```
 
 This will:
@@ -132,6 +133,17 @@ FilterHuggingfaceVisionConfig(
 ```
 
 Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`, and `detections` (label, score, box).
+
+### Grounding DINO pipeline
+
+Run open-vocabulary detection with Grounding DINO (model fixed in script; only `VIDEO_PATH` required in .env):
+
+```bash
+# Set VIDEO_PATH in .env (e.g. VIDEO_PATH=./filter_example_video.mp4)
+python scripts/grounding_dino.py
+```
+
+See [docs/supported-models.md](docs/supported-models.md) for supported Grounding DINO model IDs and config examples.
 
 ### Using Makefile
 
@@ -178,7 +190,9 @@ filter-huggingface-vision/
 ├── filter_huggingface_vision/
 │   └── filter.py              # Main filter implementation
 ├── scripts/
-│   └── object_detection_pipeline.py
+│   ├── object_detection.py
+│   ├── zero_shot_object_detection.py
+│   └── grounding_dino.py
 ├── docs/
 │   ├── overview.md
 │   └── object-detection.md

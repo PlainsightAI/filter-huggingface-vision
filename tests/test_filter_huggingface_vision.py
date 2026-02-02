@@ -98,6 +98,36 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
         self.assertEqual(len(config.text_labels), 1)
         self.assertIn("cat", config.text_labels[0][0])
 
+    def test_normalize_config_open_vocabulary_grounding_requires_text_labels(self):
+        with self.assertRaises(ValueError) as ctx:
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det",
+                    revision="main",
+                    detection_type="open-vocabulary-grounding",
+                )
+            )
+        self.assertIn("text_labels", str(ctx.exception).lower())
+
+    def test_normalize_config_accepts_open_vocabulary_grounding_with_text_labels(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det",
+                revision="main",
+                detection_type="open-vocabulary-grounding",
+                text_labels=[["a person", "a cup", "a cat"]],
+            )
+        )
+        self.assertEqual(config.detection_type, "open-vocabulary-grounding")
+        self.assertEqual(len(config.text_labels), 1)
+        self.assertIn("person", config.text_labels[0][0])
+
 
 if __name__ == "__main__":
     unittest.main()

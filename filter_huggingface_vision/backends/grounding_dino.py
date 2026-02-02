@@ -1,0 +1,158 @@
+"""Open-vocabulary object detection backend: Grounding DINO (AutoProcessor + AutoModelForZeroShotObjectDetection)."""
+
+import logging
+
+from .base import VisionBackend
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_results(result, text_labels_list, max_detections):
+    """Convert post_process_grounded_object_detection result to unified detection list."""
+    out = []
+    boxes = result.get("boxes")
+    scores = result.get("scores")
+    # Grounding DINO / MM Grounding DINO may return "labels" (str) or "text_labels" (str)
+    labels = result.get("text_labels") or result.get("labels")
+    if boxes is None or scores is None:
+        return out
+    if labels is None and text_labels_list and len(text_labels_list) > 0:
+        label_ids = result.get("labels")
+        tl = text_labels_list[0] if isinstance(text_labels_list[0], (list, tuple)) else text_labels_list
+        if hasattr(label_ids, "tolist"):
+            labels = [tl[i] if i < len(tl) else str(i) for i in label_ids.tolist()]
+        elif isinstance(label_ids, (list, tuple)):
+            labels = [tl[i] if i < len(tl) else str(i) for i in label_ids]
+    if labels is None:
+        labels = [str(i) for i in range(len(scores))]
+
+    def _tolist(x):
+        return x.tolist() if hasattr(x, "tolist") and callable(x.tolist) else list(x)
+
+    scores_list = _tolist(scores)
+    boxes_list = _tolist(boxes) if hasattr(boxes, "tolist") else list(boxes)
+    n = min(len(scores_list), len(boxes_list), len(labels), max_detections)
+    for i in range(n):
+        score = scores_list[i]
+        if not (0 <= score <= 1):
+            continue
+        box = boxes_list[i]
+        coords = box if isinstance(box, (list, tuple)) else (box.tolist() if hasattr(box, "tolist") else list(box))
+        if len(coords) < 4:
+            continue
+        # Processor returns (x0, y0, x1, y1) in pixel coords when target_sizes is passed
+        xmin = float(coords[0])
+        ymin = float(coords[1])
+        xmax = float(coords[2])
+        ymax = float(coords[3])
+        if xmin >= xmax or ymin >= ymax:
+            continue
+        label = labels[i] if i < len(labels) else str(i)
+        if hasattr(label, "item"):
+            label = str(label.item()) if hasattr(label, "item") else str(label)
+        else:
+            label = str(label)
+        out.append(
+            {
+                "label": label,
+                "score": round(float(score), 4),
+                "box": {
+                    "format": "xyxy",
+                    "xmin": xmin,
+                    "ymin": ymin,
+                    "xmax": xmax,
+                    "ymax": ymax,
+                },
+            }
+        )
+    return out
+
+
+class GroundingDinoBackend(VisionBackend):
+    """Backend for Grounding DINO (AutoProcessor + AutoModelForZeroShotObjectDetection)."""
+
+    def load(self, config):
+        import torch
+
+        from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
+
+        def _get(o, k, default=None):
+            if hasattr(o, "get") and callable(getattr(o, "get")):
+                return o.get(k, default)
+            return getattr(o, k, default)
+
+        device = _get(config, "device", "cpu")
+        if device == -1 or device == "cpu":
+            self._device = torch.device("cpu")
+        elif isinstance(device, int) and device >= 0:
+            self._device = torch.device(
+                f"cuda:{device}" if torch.cuda.is_available() else "cpu"
+            )
+        elif isinstance(device, str) and device.startswith("cuda"):
+            self._device = torch.device(device if torch.cuda.is_available() else "cpu")
+        else:
+            self._device = torch.device("cpu")
+
+        model_id = _get(config, "model_id")
+        revision = (_get(config, "revision") or "").strip() or "main"
+        trust_remote_code = _get(config, "trust_remote_code", False)
+
+        self._processor = AutoProcessor.from_pretrained(
+            model_id, revision=revision, trust_remote_code=trust_remote_code
+        )
+        self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
+            model_id, revision=revision, trust_remote_code=trust_remote_code
+        )
+        self._model = self._model.to(self._device)
+        self._model.eval()
+        self._revision = revision
+        logger.info(
+            "GroundingDinoBackend loaded model_id=%s revision=%s device=%s",
+            model_id,
+            revision,
+            self._device,
+        )
+
+    def run(self, image_pil, width, height, config):
+        def _get(o, k, default=None):
+            if hasattr(o, "get") and callable(getattr(o, "get")):
+                return o.get(k, default)
+            return getattr(o, k, default)
+
+        threshold = _get(config, "threshold", 0.3)
+        text_threshold = _get(config, "text_threshold", threshold)
+        max_detections = _get(config, "max_detections", 100)
+        text_labels = _get(config, "text_labels")
+        if not text_labels or not isinstance(text_labels, (list, tuple)) or not text_labels:
+            return []
+        if isinstance(text_labels[0], (list, tuple)):
+            text_labels_this = text_labels[0]
+        else:
+            text_labels_this = text_labels
+
+        # Processor expects text as list of list of str (one list per image)
+        text_batch = [list(text_labels_this)] if isinstance(text_labels_this, (list, tuple)) else [[str(text_labels_this)]]
+        inputs = self._processor(
+            images=image_pil,
+            text=text_batch,
+            return_tensors="pt",
+        )
+        import torch
+
+        inputs = {k: v.to(self._device) if hasattr(v, "to") else v for k, v in inputs.items()}
+
+        with torch.no_grad():
+            outputs = self._model(**inputs)
+
+        # Same API as HF example: target_sizes=[(image.height, image.width)], threshold, text_threshold
+        h, w = height, width
+        if hasattr(image_pil, "size") and image_pil.size:
+            w, h = image_pil.size[0], image_pil.size[1]
+        results = self._processor.post_process_grounded_object_detection(
+            outputs,
+            threshold=threshold,
+            text_threshold=text_threshold,
+            target_sizes=[(h, w)],
+        )
+        result = results[0] if results else {}
+        return _normalize_results(result, text_labels, max_detections)
