@@ -3,6 +3,7 @@ import os
 from openfilter.filter_runtime.filter import FilterConfig, Filter, Frame
 
 from filter_huggingface_vision.backends import get_backend
+from filter_huggingface_vision.utils import get_config_value
 
 os.environ.setdefault("HF_HOME", f"{os.getcwd()}/models/hfcache")
 os.environ.setdefault("TRANSFORMERS_CACHE", f"{os.getcwd()}/models/hfcache")
@@ -156,42 +157,37 @@ class FilterHuggingfaceVision(Filter):
         base = super().normalize_config(config)
 
         # Preserve our attributes: base may be dict or object and might not carry model_id/revision
-        def _get(o, k, default=None):
-            if hasattr(o, "get") and callable(getattr(o, "get")):
-                return o.get(k, default)
-            return getattr(o, k, default)
-
         config = FilterHuggingfaceVisionConfig(
             base,
-            draw_visualization=_get(config, "draw_visualization", False)
-            if _get(config, "draw_visualization") is not None
-            else _get(base, "draw_visualization", False),
-            visualization_topic=_get(config, "visualization_topic", "viz")
-            or _get(base, "visualization_topic", "viz"),
-            visualization_alpha=_get(config, "visualization_alpha", 0.7)
-            if _get(config, "visualization_alpha") is not None
-            else _get(base, "visualization_alpha", 0.7),
-            visualization_source_topic=_get(config, "visualization_source_topic")
-            or _get(base, "visualization_source_topic"),
-            model_id=_get(config, "model_id") or _get(base, "model_id"),
-            revision=_get(config, "revision") or _get(base, "revision"),
-            detection_type=_get(config, "detection_type", "closed-vocabulary")
-            or _get(base, "detection_type", "closed-vocabulary"),
-            threshold=_get(config, "threshold", 0.3)
-            if _get(config, "threshold") is not None
-            else (_get(base, "threshold", 0.3)),
-            device=_get(config, "device", "cpu") or _get(base, "device", "cpu"),
-            trust_remote_code=_get(config, "trust_remote_code", False)
-            if _get(config, "trust_remote_code") is not None
-            else _get(base, "trust_remote_code", False),
-            max_detections=_get(config, "max_detections", 100)
-            if _get(config, "max_detections") is not None
-            else _get(base, "max_detections", 100),
-            input_topic=_get(config, "input_topic", "main")
-            or _get(base, "input_topic", "main"),
-            output_topic=_get(config, "output_topic", "main")
-            or _get(base, "output_topic", "main"),
-            text_labels=_get(config, "text_labels") or _get(base, "text_labels"),
+            draw_visualization=get_config_value(config, "draw_visualization", False)
+            if get_config_value(config, "draw_visualization") is not None
+            else get_config_value(base, "draw_visualization", False),
+            visualization_topic=get_config_value(config, "visualization_topic", "viz")
+            or get_config_value(base, "visualization_topic", "viz"),
+            visualization_alpha=get_config_value(config, "visualization_alpha", 0.7)
+            if get_config_value(config, "visualization_alpha") is not None
+            else get_config_value(base, "visualization_alpha", 0.7),
+            visualization_source_topic=get_config_value(config, "visualization_source_topic")
+            or get_config_value(base, "visualization_source_topic"),
+            model_id=get_config_value(config, "model_id") or get_config_value(base, "model_id"),
+            revision=get_config_value(config, "revision") or get_config_value(base, "revision"),
+            detection_type=get_config_value(config, "detection_type", "closed-vocabulary")
+            or get_config_value(base, "detection_type", "closed-vocabulary"),
+            threshold=get_config_value(config, "threshold", 0.3)
+            if get_config_value(config, "threshold") is not None
+            else (get_config_value(base, "threshold", 0.3)),
+            device=get_config_value(config, "device", "cpu") or get_config_value(base, "device", "cpu"),
+            trust_remote_code=get_config_value(config, "trust_remote_code", False)
+            if get_config_value(config, "trust_remote_code") is not None
+            else get_config_value(base, "trust_remote_code", False),
+            max_detections=get_config_value(config, "max_detections", 100)
+            if get_config_value(config, "max_detections") is not None
+            else get_config_value(base, "max_detections", 100),
+            input_topic=get_config_value(config, "input_topic", "main")
+            or get_config_value(base, "input_topic", "main"),
+            output_topic=get_config_value(config, "output_topic", "main")
+            or get_config_value(base, "output_topic", "main"),
+            text_labels=get_config_value(config, "text_labels") or get_config_value(base, "text_labels"),
         )
 
         rev = getattr(config, "revision", None)
@@ -208,7 +204,7 @@ class FilterHuggingfaceVision(Filter):
         get_backend(detection_type)  # validate detection_type is registered
 
         if detection_type == "open-vocabulary" or detection_type == "open-vocabulary-grounding":
-            tl = _get(config, "text_labels") or _get(base, "text_labels")
+            tl = get_config_value(config, "text_labels") or get_config_value(base, "text_labels")
             if not tl or not isinstance(tl, (list, tuple)) or not tl:
                 raise ValueError(
                     f"detection_type='{detection_type}' requires text_labels "

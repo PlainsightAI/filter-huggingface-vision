@@ -2,6 +2,8 @@
 
 import logging
 
+from filter_huggingface_vision.utils import get_config_value
+
 from .base import VisionBackend
 
 logger = logging.getLogger(__name__)
@@ -65,12 +67,7 @@ class OwlVitBackend(VisionBackend):
 
         from transformers import OwlViTForObjectDetection, OwlViTProcessor
 
-        def _get(o, k, default=None):
-            if hasattr(o, "get") and callable(getattr(o, "get")):
-                return o.get(k, default)
-            return getattr(o, k, default)
-
-        device = _get(config, "device", "cpu")
+        device = get_config_value(config, "device", "cpu")
         if device == -1 or device == "cpu":
             self._device = torch.device("cpu")
         elif isinstance(device, int) and device >= 0:
@@ -82,9 +79,9 @@ class OwlVitBackend(VisionBackend):
         else:
             self._device = torch.device("cpu")
 
-        model_id = _get(config, "model_id")
-        revision = (_get(config, "revision") or "").strip() or "main"
-        trust_remote_code = _get(config, "trust_remote_code", False)
+        model_id = get_config_value(config, "model_id")
+        revision = (get_config_value(config, "revision") or "").strip() or "main"
+        trust_remote_code = get_config_value(config, "trust_remote_code", False)
 
         self._processor = OwlViTProcessor.from_pretrained(
             model_id, revision=revision, trust_remote_code=trust_remote_code
@@ -103,14 +100,9 @@ class OwlVitBackend(VisionBackend):
         )
 
     def run(self, image_pil, width, height, config):
-        def _get(o, k, default=None):
-            if hasattr(o, "get") and callable(getattr(o, "get")):
-                return o.get(k, default)
-            return getattr(o, k, default)
-
-        threshold = _get(config, "threshold", 0.1)
-        max_detections = _get(config, "max_detections", 100)
-        text_labels = _get(config, "text_labels")
+        threshold = get_config_value(config, "threshold", 0.1)
+        max_detections = get_config_value(config, "max_detections", 100)
+        text_labels = get_config_value(config, "text_labels")
         if not text_labels or not isinstance(text_labels, (list, tuple)) or not text_labels:
             return []
         # One image: text_labels is list of list of str, use first list for this image
