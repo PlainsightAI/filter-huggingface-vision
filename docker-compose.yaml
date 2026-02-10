@@ -1,10 +1,9 @@
-# Object detection pipeline (matches scripts/object_detection_pipeline.py):
-# VideoIn → FilterHuggingfaceVision (Object Detection) → Webvis
+# Closed-vocabulary object detection pipeline (matches scripts/object_detection.py):
+# VideoIn → FilterHuggingfaceVision (detection_type=closed-vocabulary) → Webvis
 #
-# Required: set MODEL_ID and REVISION (e.g. in .env):
-#   MODEL_ID=PekingU/rtdetr_r50vd
-#   REVISION=main
-# Optional: VIDEO_PATH (file inside container), THRESHOLD, DRAW_VISUALIZATION, PORT
+# Required in .env: MODEL_ID, REVISION (e.g. MODEL_ID=PekingU/rtdetr_r50vd, REVISION=main)
+# Optional: THRESHOLD, DRAW_VISUALIZATION, PORT (default 8010)
+# Video is mounted at /filter_example_video.mp4 (see volumes under video_in).
 
 services:
   video_in:

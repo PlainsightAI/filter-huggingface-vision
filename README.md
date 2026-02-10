@@ -6,6 +6,16 @@
 
 A generic filter that uses Hugging Face Transformers for vision (closed-vocabulary and open-vocabulary object detection) across video streams and OpenFilter pipelines. The filter uses a backend per detection type so multiple model interfaces (AutoImageProcessor, OwlViTProcessor, etc.) are supported with a single config and unified output format.
 
+### Methods in this release (first version)
+
+| Method | Detection type | Script | Key config |
+|--------|----------------|--------|------------|
+| **Closed-vocabulary** (DETR, RT-DETR, Conditional DETR) | `closed-vocabulary` | `scripts/object_detection.py` | `MODEL_ID`, `REVISION`, `VIDEO_PATH` in `.env` |
+| **Open-vocabulary** (OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
+| **Open-vocabulary** (Grounding DINO) | `open-vocabulary-grounding` | `scripts/grounding_dino.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
+
+All methods write the same output shape to `frame.data["subjects"]["huggingface_vision"]` (see [Output Structure](#output-structure)). Supported model IDs per method: [docs/supported-models.md](docs/supported-models.md).
+
 ## Features
 
 - **Detection types**: `closed-vocabulary` (DETR, RT-DETR), `open-vocabulary` (OWL-ViT), and `open-vocabulary-grounding` (Grounding DINO) via pluggable backends
@@ -101,9 +111,11 @@ PORT=8010
 
 ## Usage
 
-### Object Detection Pipeline
+Use the script that matches your method (see table above). All scripts run VideoIn → FilterHuggingfaceVision → Webvis and serve the UI at `http://localhost:PORT` (default 8010).
 
-Run the pipeline (VideoIn → FilterHuggingfaceVision → Webvis):
+### Closed-vocabulary (object detection pipeline)
+
+Run the pipeline with a fixed-vocabulary model (DETR, RT-DETR, Conditional DETR):
 
 ```bash
 # Ensure MODEL_ID, REVISION, and VIDEO_PATH are set (e.g. in .env)
@@ -117,7 +129,14 @@ This will:
 
 ### Zero-shot object detection (OWL-ViT)
 
-Use `detection_type="open-vocabulary"` with a model like `google/owlvit-base-patch32` and provide `text_labels` (list of list of str):
+Run the zero-shot script (model and `text_labels` are set in the script):
+
+```bash
+# Set VIDEO_PATH in .env; edit TEXT_LABELS in scripts/zero_shot_object_detection.py if needed
+python scripts/zero_shot_object_detection.py
+```
+
+Or use the filter with `detection_type="open-vocabulary"`, model `google/owlvit-base-patch32`, and `text_labels` (list of list of str):
 
 ```python
 from filter_huggingface_vision.filter import FilterHuggingfaceVision, FilterHuggingfaceVisionConfig
@@ -238,10 +257,11 @@ make test-coverage
 
 ## Documentation
 
-For more detail, pipeline examples, and variable reference, see:
+For more detail, pipeline examples, variable reference, and supported model IDs per method:
 
 - [Overview](docs/overview.md)
 - [Object detection](docs/object-detection.md)
+- [Supported models](docs/supported-models.md)
 
 ## License
 
