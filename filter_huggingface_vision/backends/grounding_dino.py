@@ -50,10 +50,7 @@ def _normalize_results(result, text_labels_list, max_detections):
         if xmin >= xmax or ymin >= ymax:
             continue
         label = labels[i] if i < len(labels) else str(i)
-        if hasattr(label, "item"):
-            label = str(label.item()) if hasattr(label, "item") else str(label)
-        else:
-            label = str(label)
+        label = str(label.item()) if hasattr(label, "item") else str(label)
         out.append(
             {
                 "label": label,
