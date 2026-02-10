@@ -2,7 +2,7 @@
 
 import logging
 
-from filter_huggingface_vision.utils import get_config_value
+from filter_huggingface_vision.utils import get_config_value, resolve_device
 
 from .base import VisionBackend
 
@@ -71,22 +71,9 @@ class ObjectDetectionBackend(VisionBackend):
     """Backend for AutoImageProcessor + AutoModelForObjectDetection (DETR, RT-DETR, Conditional DETR, etc.)."""
 
     def load(self, config):
-        import torch
-
         from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
-        device = get_config_value(config, "device", "cpu")
-        if device == -1 or device == "cpu":
-            self._device = torch.device("cpu")
-        elif isinstance(device, int) and device >= 0:
-            self._device = torch.device(
-                f"cuda:{device}" if torch.cuda.is_available() else "cpu"
-            )
-        elif isinstance(device, str) and device.startswith("cuda"):
-            self._device = torch.device(device if torch.cuda.is_available() else "cpu")
-        else:
-            self._device = torch.device("cpu")
-
+        self._device = resolve_device(get_config_value(config, "device", "cpu"))
         model_id = get_config_value(config, "model_id")
         revision = (get_config_value(config, "revision") or "").strip() or None
         if not revision:

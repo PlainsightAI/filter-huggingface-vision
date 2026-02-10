@@ -83,12 +83,22 @@ def _create_visualization(image_bgr, payload):
         ymin = box.get("ymin", 0)
         xmax = box.get("xmax", 0)
         ymax = box.get("ymax", 0)
-        x1, y1, x2, y2 = int(round(xmin)), int(round(ymin)), int(round(xmax)), int(round(ymax))
+        x1, y1, x2, y2 = (
+            int(round(xmin)),
+            int(round(ymin)),
+            int(round(xmax)),
+            int(round(ymax)),
+        )
         cv2.rectangle(vis_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
         text = f"{label} {score:.2f}"
         cv2.putText(
-            vis_image, text, (x1, y1 - 6),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2,
+            vis_image,
+            text,
+            (x1, y1 - 6),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            2,
         )
     return vis_image
 
@@ -167,16 +177,23 @@ class FilterHuggingfaceVision(Filter):
             visualization_alpha=get_config_value(config, "visualization_alpha", 0.7)
             if get_config_value(config, "visualization_alpha") is not None
             else get_config_value(base, "visualization_alpha", 0.7),
-            visualization_source_topic=get_config_value(config, "visualization_source_topic")
+            visualization_source_topic=get_config_value(
+                config, "visualization_source_topic"
+            )
             or get_config_value(base, "visualization_source_topic"),
-            model_id=get_config_value(config, "model_id") or get_config_value(base, "model_id"),
-            revision=get_config_value(config, "revision") or get_config_value(base, "revision"),
-            detection_type=get_config_value(config, "detection_type", "closed-vocabulary")
+            model_id=get_config_value(config, "model_id")
+            or get_config_value(base, "model_id"),
+            revision=get_config_value(config, "revision")
+            or get_config_value(base, "revision"),
+            detection_type=get_config_value(
+                config, "detection_type", "closed-vocabulary"
+            )
             or get_config_value(base, "detection_type", "closed-vocabulary"),
             threshold=get_config_value(config, "threshold", 0.3)
             if get_config_value(config, "threshold") is not None
             else (get_config_value(base, "threshold", 0.3)),
-            device=get_config_value(config, "device", "cpu") or get_config_value(base, "device", "cpu"),
+            device=get_config_value(config, "device", "cpu")
+            or get_config_value(base, "device", "cpu"),
             trust_remote_code=get_config_value(config, "trust_remote_code", False)
             if get_config_value(config, "trust_remote_code") is not None
             else get_config_value(base, "trust_remote_code", False),
@@ -187,7 +204,8 @@ class FilterHuggingfaceVision(Filter):
             or get_config_value(base, "input_topic", "main"),
             output_topic=get_config_value(config, "output_topic", "main")
             or get_config_value(base, "output_topic", "main"),
-            text_labels=get_config_value(config, "text_labels") or get_config_value(base, "text_labels"),
+            text_labels=get_config_value(config, "text_labels")
+            or get_config_value(base, "text_labels"),
         )
 
         rev = getattr(config, "revision", None)
@@ -203,8 +221,13 @@ class FilterHuggingfaceVision(Filter):
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
 
-        if detection_type == "open-vocabulary" or detection_type == "open-vocabulary-grounding":
-            tl = get_config_value(config, "text_labels") or get_config_value(base, "text_labels")
+        if (
+            detection_type == "open-vocabulary"
+            or detection_type == "open-vocabulary-grounding"
+        ):
+            tl = get_config_value(config, "text_labels") or get_config_value(
+                base, "text_labels"
+            )
             if not tl or not isinstance(tl, (list, tuple)) or not tl:
                 raise ValueError(
                     f"detection_type='{detection_type}' requires text_labels "
@@ -232,7 +255,9 @@ class FilterHuggingfaceVision(Filter):
         self._revision = (getattr(config, "revision") or "").strip() or None
         self.draw_visualization = getattr(config, "draw_visualization", False)
         self.visualization_topic = getattr(config, "visualization_topic", "viz")
-        self.visualization_source_topic = getattr(config, "visualization_source_topic", None)
+        self.visualization_source_topic = getattr(
+            config, "visualization_source_topic", None
+        )
         logger.info(
             "filter_huggingface_vision loaded detection_type=%s model_id=%s revision=%s",
             detection_type,
@@ -252,6 +277,13 @@ class FilterHuggingfaceVision(Filter):
     def process(self, frames: dict[str, Frame]):
         if not frames or not getattr(self, "_backend", None):
             return frames
+
+        # So Webvis (sources="...;main,...;viz") always gets a "main" stream: if the
+        # upstream sent a single frame under another key, treat it as "main".
+        output_topic = getattr(self._config, "output_topic", "main")
+        if output_topic not in frames:
+            only_key = next(iter(frames))
+            frames[output_topic] = frames.pop(only_key)
 
         config = self._config
         input_topic = getattr(config, "input_topic", "main")
@@ -291,19 +323,39 @@ class FilterHuggingfaceVision(Filter):
                 main_frame_for_viz = frame
 
         # Visualization topic (same pattern as FilterProtegeModel)
-        if getattr(self, "draw_visualization", False) and main_frame_payload and main_frame_for_viz is not None:
+        if (
+            getattr(self, "draw_visualization", False)
+            and main_frame_payload
+            and main_frame_for_viz is not None
+        ):
             viz_topic = getattr(self, "visualization_topic", "viz")
             src_topic = getattr(self, "visualization_source_topic", None)
             image_bgr = None
-            if src_topic and src_topic in frames and frames[src_topic] is not None and getattr(frames[src_topic], "has_image", False):
+            if (
+                src_topic
+                and src_topic in frames
+                and frames[src_topic] is not None
+                and getattr(frames[src_topic], "has_image", False)
+            ):
                 image_bgr = frames[src_topic].rw_bgr.image
-            if image_bgr is None and main_frame_for_viz is not None and getattr(main_frame_for_viz, "has_image", False):
+            if (
+                image_bgr is None
+                and main_frame_for_viz is not None
+                and getattr(main_frame_for_viz, "has_image", False)
+            ):
                 image_bgr = main_frame_for_viz.rw_bgr.image
             if image_bgr is not None:
                 vis_image = _create_visualization(image_bgr, main_frame_payload)
-                viz_meta = {"meta": {"detections": main_frame_payload.get("detections", []), "detection_confidence": 0.0}}
+                viz_meta = {
+                    "meta": {
+                        "detections": main_frame_payload.get("detections", []),
+                        "detection_confidence": 0.0,
+                    }
+                }
                 if main_frame_payload.get("detections"):
-                    scores = [d.get("score", 0) for d in main_frame_payload["detections"]]
+                    scores = [
+                        d.get("score", 0) for d in main_frame_payload["detections"]
+                    ]
                     viz_meta["meta"]["detection_confidence"] = sum(scores) / len(scores)
                 frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
 
