@@ -126,8 +126,10 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     max_detections: int = 100
     input_topic: str = "main"
     output_topic: str = "main"
-    # Zero-shot (e.g. OWL-ViT): list of list of str, e.g. [["a photo of a cat", "a photo of a dog"]]
-    text_labels: list = None
+    # Zero-shot (OWL-ViT, Grounding DINO): one list of query strings per image.
+    # Required when detection_type is "open-vocabulary" or "open-vocabulary-grounding".
+    # Example: [["a photo of a cat", "a photo of a dog"]] for a single image.
+    text_labels: list[list[str]] | None = None
 
 
 class FilterHuggingfaceVision(Filter):
