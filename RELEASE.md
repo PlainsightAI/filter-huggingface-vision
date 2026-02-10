@@ -4,7 +4,7 @@ Huggingface Vision filter release notes
 ## [Unreleased]
 
 
-## v0.1.0 - 2026-01-29
+## v0.1.0 - 2026-02-10
 
 ### Added
 - Initial release: Hugging Face Vision filter for OpenFilter

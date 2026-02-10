@@ -73,6 +73,7 @@ if __name__ == "__main__":
         )
 
     threshold = float(os.getenv("THRESHOLD", "0.3"))
+    port = int(os.getenv("PORT", "8010"))
 
     print("Running Object Detection Pipeline (Hugging Face Vision)")
     print(f"Video source: {video_path}")
@@ -107,7 +108,7 @@ if __name__ == "__main__":
                 dict(
                     id="webvis",
                     sources="tcp://localhost:5552;main,tcp://localhost:5552;viz",
-                    port=8010,
+                    port=port,
                 ),
             ),
         ]
