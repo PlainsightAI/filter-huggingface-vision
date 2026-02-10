@@ -155,6 +155,7 @@ class FilterHuggingfaceVision(Filter):
     Visualization Frame (topic: "viz" when draw_visualization=True):
     - Image with bounding boxes and labels drawn
     - frame.data["meta"]: detections, detection_confidence
+    - When multiple frames are processed, the viz topic uses the first frame's image and detections (same as filter-protege-model).
 
     Key Features:
     - Hugging Face object-detection models (model_id + revision required)
