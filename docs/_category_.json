@@ -1,9 +1,9 @@
 {
-  "label": "{{FILTER_NAME}}",
+  "label": "Huggingface Vision",
   "link": {
     "type": "generated-index",
-    "title": "{{FILTER_NAME}}",
-    "description": "{{FILTER_NAME}} description",
-    "slug": "/{{REPO_NAME_KEBABCASE}}"
+    "title": "Huggingface Vision",
+    "description": "Huggingface Vision description",
+    "slug": "/filter-huggingface-vision"
   }
 }

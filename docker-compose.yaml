@@ -1,3 +1,10 @@
+# Closed-vocabulary object detection pipeline (matches scripts/object_detection.py):
+# VideoIn → FilterHuggingfaceVision (detection_type=closed-vocabulary) → Webvis
+#
+# Required in .env: MODEL_ID, REVISION (e.g. MODEL_ID=PekingU/rtdetr_r50vd, REVISION=main)
+# Optional: THRESHOLD, DRAW_VISUALIZATION, PORT (default 8010)
+# Video is mounted at /filter_example_video.mp4 (see volumes under video_in).
+
 services:
   video_in:
     image: us-west1-docker.pkg.dev/plainsightai-prod/oci/openfilter/video_in:v0.1.9
@@ -13,14 +20,21 @@ services:
     networks:
       - filter-network
 
-  {{REPO_NAME_SNAKECASE}}:
-    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/{{REPO_NAME}}:v0.1.0
+  filter_huggingface_vision:
+    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/filter-huggingface-vision:v0.1.0
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
-      FILTER_ID: {{REPO_NAME_PASCALCASE}}
+      FILTER_ID: filter_huggingface_vision
       FILTER_SOURCES: tcp://video_in:5550
       FILTER_OUTPUTS: tcp://*:5552
       FILTER_MQ_LOG: pretty
+      # Required (set in .env or here)
+      FILTER_MODEL_ID: ${MODEL_ID:-PekingU/rtdetr_r50vd}
+      FILTER_REVISION: ${REVISION:-main}
+      # Optional
+      FILTER_THRESHOLD: ${THRESHOLD:-0.3}
+      FILTER_DRAW_VISUALIZATION: ${DRAW_VISUALIZATION:-true}
+      FILTER_VISUALIZATION_TOPIC: viz
 
     # WARNING! WARNING! WARNING! If you do not have an Nvidia GPU then comment this section out!!!
     deploy:
@@ -42,13 +56,15 @@ services:
     image: us-west1-docker.pkg.dev/plainsightai-prod/oci/openfilter/webvis:v0.1.9
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
-      FILTER_ID: Webvis
-      FILTER_SOURCES: tcp://{{REPO_NAME_SNAKECASE}}:5552
+      FILTER_ID: webvis
+      # Subscribe to main and viz (detection overlay) from filter
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main,tcp://filter_huggingface_vision:5552;viz
+      FILTER_PORT: ${PORT:-8010}
     volumes:
       - ./cache:/app/cache
       - ./telemetry:/app/telemetry
     ports:
-      - 8000:8000
+      - "${PORT:-8010}:${PORT:-8010}"
     networks:
       - filter-network
 

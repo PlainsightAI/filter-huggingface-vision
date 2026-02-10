@@ -139,3 +139,6 @@ telemetry/
 models/
 logs/
 entrypoint.sh
+
+# Logs
+logs/
