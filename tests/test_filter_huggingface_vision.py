@@ -1,13 +1,167 @@
 #!/usr/bin/env python
-"""Simple tests for CI: config validation only (no model download)."""
+"""Tests for CI: config validation and normalization logic (no model download)."""
 
-import os
 import unittest
 
+from filter_huggingface_vision.backends.grounding_dino import (
+    _normalize_results as _normalize_results_grounding,
+)
+from filter_huggingface_vision.backends.object_detection import _normalize_detections
+from filter_huggingface_vision.backends.owlvit import (
+    _normalize_results as _normalize_results_owlvit,
+)
 from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
 )
+
+
+class TestNormalizeDetections(unittest.TestCase):
+    """Unit tests for _normalize_detections (object_detection backend). No model download."""
+
+    def test_empty_results_returns_empty_list(self):
+        model_config = type("Config", (), {"id2label": {}})()
+        out = _normalize_detections(
+            {"scores": None, "labels": [], "boxes": []}, model_config, 100
+        )
+        self.assertEqual(out, [])
+
+    def test_missing_scores_returns_empty_list(self):
+        model_config = type("Config", (), {"id2label": {}})()
+        out = _normalize_detections(
+            {"labels": [0], "boxes": [[0, 0, 10, 10]]}, model_config, 100
+        )
+        self.assertEqual(out, [])
+
+    def test_filters_scores_outside_zero_one(self):
+        model_config = type("Config", (), {"id2label": {0: "cat"}})()
+        results = {
+            "scores": [0.9, 1.5, -0.1],
+            "labels": [0, 0, 0],
+            "boxes": [[0, 0, 10, 10], [5, 5, 15, 15], [10, 10, 20, 20]],
+        }
+        out = _normalize_detections(results, model_config, 100)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["score"], 0.9)
+        self.assertEqual(out[0]["label"], "cat")
+
+    def test_filters_invalid_boxes(self):
+        model_config = type("Config", (), {"id2label": {0: "x"}})()
+        results = {
+            "scores": [0.9, 0.8],
+            "labels": [0, 0],
+            "boxes": [[0, 0, 10, 10], [15, 15, 10, 10]],
+        }
+        out = _normalize_detections(results, model_config, 100)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["box"]["xmin"], 0)
+        self.assertEqual(out[0]["box"]["xmax"], 10)
+
+    def test_respects_max_detections(self):
+        model_config = type("Config", (), {"id2label": {i: str(i) for i in range(10)}})()
+        results = {
+            "scores": [0.9 - i * 0.1 for i in range(10)],
+            "labels": list(range(10)),
+            "boxes": [[i, i, i + 10, i + 10] for i in range(10)],
+        }
+        out = _normalize_detections(results, model_config, max_detections=3)
+        self.assertEqual(len(out), 3)
+
+    def test_output_schema(self):
+        model_config = type("Config", (), {"id2label": {0: "dog"}})()
+        results = {
+            "scores": [0.95],
+            "labels": [0],
+            "boxes": [[1.0, 2.0, 11.0, 12.0]],
+        }
+        out = _normalize_detections(results, model_config, 100)
+        self.assertEqual(len(out), 1)
+        d = out[0]
+        self.assertIn("label", d)
+        self.assertIn("score", d)
+        self.assertIn("box", d)
+        self.assertEqual(d["label"], "dog")
+        self.assertEqual(d["score"], 0.95)
+        self.assertEqual(d["box"]["format"], "xyxy")
+        self.assertEqual(d["box"]["xmin"], 1.0)
+        self.assertEqual(d["box"]["ymin"], 2.0)
+        self.assertEqual(d["box"]["xmax"], 11.0)
+        self.assertEqual(d["box"]["ymax"], 12.0)
+
+
+class TestNormalizeResultsOwlvit(unittest.TestCase):
+    """Unit tests for _normalize_results (owlvit backend). No model download."""
+
+    def test_empty_result_returns_empty_list(self):
+        out = _normalize_results_owlvit(
+            {"boxes": None, "scores": []}, [], 100
+        )
+        self.assertEqual(out, [])
+
+    def test_filters_scores_outside_zero_one(self):
+        result = {
+            "boxes": [[0, 0, 10, 10], [5, 5, 15, 15]],
+            "scores": [0.8, 1.2],
+            "text_labels": ["cat", "dog"],
+        }
+        out = _normalize_results_owlvit(result, [["cat", "dog"]], 100)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["score"], 0.8)
+
+    def test_filters_invalid_boxes(self):
+        result = {
+            "boxes": [[0, 0, 10, 10], [20, 20, 10, 10]],
+            "scores": [0.9, 0.8],
+            "text_labels": ["a", "b"],
+        }
+        out = _normalize_results_owlvit(result, [["a", "b"]], 100)
+        self.assertEqual(len(out), 1)
+
+    def test_output_schema(self):
+        result = {
+            "boxes": [[1, 2, 11, 12]],
+            "scores": [0.95],
+            "text_labels": ["person"],
+        }
+        out = _normalize_results_owlvit(result, [["person"]], 100)
+        self.assertEqual(len(out), 1)
+        d = out[0]
+        self.assertEqual(d["label"], "person")
+        self.assertEqual(d["score"], 0.95)
+        self.assertEqual(d["box"]["format"], "xyxy")
+        self.assertEqual(d["box"]["xmin"], 1)
+
+
+class TestNormalizeResultsGrounding(unittest.TestCase):
+    """Unit tests for _normalize_results (grounding_dino backend). No model download."""
+
+    def test_empty_result_returns_empty_list(self):
+        out = _normalize_results_grounding(
+            {"boxes": None, "scores": []}, [], 100
+        )
+        self.assertEqual(out, [])
+
+    def test_filters_scores_outside_zero_one(self):
+        result = {
+            "boxes": [[0, 0, 10, 10], [5, 5, 15, 15]],
+            "scores": [0.7, -0.1],
+        }
+        out = _normalize_results_grounding(result, [["a", "b"]], 100)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["score"], 0.7)
+
+    def test_output_schema(self):
+        result = {
+            "boxes": [[1, 2, 11, 12]],
+            "scores": [0.95],
+            "text_labels": ["cup"],
+        }
+        out = _normalize_results_grounding(result, [["cup"]], 100)
+        self.assertEqual(len(out), 1)
+        d = out[0]
+        self.assertEqual(d["label"], "cup")
+        self.assertEqual(d["score"], 0.95)
+        self.assertEqual(d["box"]["format"], "xyxy")
 
 
 class TestFilterHuggingfaceVision(unittest.TestCase):
