@@ -66,7 +66,7 @@ def _image_from_frame(frame, input_topic):
 
 
 def _create_visualization(image_bgr, payload):
-    """Draw detection boxes and labels on a BGR image. Returns BGR numpy array."""
+    """Draw detection boxes and labels, or (for classification) top label + score as text. Returns BGR numpy array."""
     try:
         import cv2
         import numpy as np
@@ -74,6 +74,23 @@ def _create_visualization(image_bgr, payload):
         return image_bgr.copy() if image_bgr is not None else None
 
     vis_image = image_bgr.copy()
+    classifications = payload.get("classifications", [])
+    if classifications:
+        top = classifications[0]
+        label = top.get("label", "")
+        score = top.get("score", 0.0)
+        text = f"{label} {score:.2f}"
+        cv2.putText(
+            vis_image,
+            text,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2,
+        )
+        return vis_image
+
     detections = payload.get("detections", [])
     for d in detections:
         label = d.get("label", "")
@@ -119,11 +136,12 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Model/config
     model_id: str = None
     revision: str = None
-    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary"
+    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary" | "image-classification"
     threshold: float = 0.3
     device: str = "cpu"
     trust_remote_code: bool = False
     max_detections: int = 100
+    top_k: int = 5  # for image-classification: number of top classes to return
     input_topic: str = "main"
     output_topic: str = "main"
     # Zero-shot (OWL-ViT, Grounding DINO): one list of query strings per image.
@@ -203,6 +221,9 @@ class FilterHuggingfaceVision(Filter):
             max_detections=get_config_value(config, "max_detections", 100)
             if get_config_value(config, "max_detections") is not None
             else get_config_value(base, "max_detections", 100),
+            top_k=get_config_value(config, "top_k", 5)
+            if get_config_value(config, "top_k") is not None
+            else get_config_value(base, "top_k", 5),
             input_topic=get_config_value(config, "input_topic", "main")
             or get_config_value(base, "input_topic", "main"),
             output_topic=get_config_value(config, "output_topic", "main")
@@ -217,12 +238,20 @@ class FilterHuggingfaceVision(Filter):
                 "revision is required and must be non-empty (reproducibility)."
             )
 
-        t = getattr(config, "threshold", 0.3)
-        if not isinstance(t, (int, float)) or t < 0 or t > 1:
-            raise ValueError("threshold must be a number in [0, 1].")
-
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
+
+        if detection_type != "image-classification":
+            t = getattr(config, "threshold", 0.3)
+            if not isinstance(t, (int, float)) or t < 0 or t > 1:
+                raise ValueError("threshold must be a number in [0, 1].")
+
+        if detection_type == "image-classification":
+            tk = getattr(config, "top_k", 5)
+            if not isinstance(tk, int) or tk < 1 or tk > 1000:
+                raise ValueError(
+                    "top_k must be an integer in [1, 1000] when detection_type is image-classification."
+                )
 
         if (
             detection_type == "open-vocabulary"
@@ -301,20 +330,31 @@ class FilterHuggingfaceVision(Filter):
             if image is None:
                 continue
 
-            detections = self._backend.run(image, width, height, config)
-            # task: legacy key for backward compatibility (same values as before)
-            _task = (
-                "object-detection"
-                if detection_type == "closed-vocabulary"
-                else "zero-shot-object-detection"
-            )
-            payload = {
-                "detection_type": detection_type,
-                "task": _task,
-                "model": {"id": model_id, "revision": self._revision},
-                "image": {"width": width, "height": height},
-                "detections": detections,
-            }
+            result = self._backend.run(image, width, height, config)
+            if isinstance(result, dict) and "classifications" in result:
+                _task = "image-classification"
+                payload = {
+                    "detection_type": detection_type,
+                    "task": _task,
+                    "model": {"id": model_id, "revision": self._revision},
+                    "image": {"width": width, "height": height},
+                    "detections": [],
+                    "classifications": result["classifications"],
+                }
+            else:
+                detections = result
+                _task = (
+                    "object-detection"
+                    if detection_type == "closed-vocabulary"
+                    else "zero-shot-object-detection"
+                )
+                payload = {
+                    "detection_type": detection_type,
+                    "task": _task,
+                    "model": {"id": model_id, "revision": self._revision},
+                    "image": {"width": width, "height": height},
+                    "detections": detections,
+                }
             if not hasattr(frame, "data"):
                 frame.data = {}
             if "subjects" not in frame.data:
@@ -360,6 +400,15 @@ class FilterHuggingfaceVision(Filter):
                         d.get("score", 0) for d in main_frame_payload["detections"]
                     ]
                     viz_meta["meta"]["detection_confidence"] = sum(scores) / len(scores)
+                if main_frame_payload.get("classifications"):
+                    scores = [
+                        c.get("score", 0)
+                        for c in main_frame_payload["classifications"]
+                    ]
+                    if scores:
+                        viz_meta["meta"]["detection_confidence"] = sum(scores) / len(
+                            scores
+                        )
                 frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
 
         return frames

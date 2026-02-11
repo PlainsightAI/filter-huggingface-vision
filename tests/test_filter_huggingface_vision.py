@@ -6,6 +6,9 @@ import unittest
 from filter_huggingface_vision.backends.grounding_dino import (
     _normalize_results as _normalize_results_grounding,
 )
+from filter_huggingface_vision.backends.image_classification import (
+    _logits_to_classifications,
+)
 from filter_huggingface_vision.backends.object_detection import _normalize_detections
 from filter_huggingface_vision.backends.owlvit import (
     _normalize_results as _normalize_results_owlvit,
@@ -164,6 +167,68 @@ class TestNormalizeResultsGrounding(unittest.TestCase):
         self.assertEqual(d["box"]["format"], "xyxy")
 
 
+class TestLogitsToClassifications(unittest.TestCase):
+    """Unit tests for _logits_to_classifications (image_classification backend). No model download."""
+
+    def test_empty_logits_returns_empty_list(self):
+        import torch
+
+        out = _logits_to_classifications(None, {0: "a"}, 5)
+        self.assertEqual(out, [])
+        logits = torch.zeros(0, 10)
+        out = _logits_to_classifications(logits, {i: str(i) for i in range(10)}, 5)
+        self.assertEqual(out, [])
+
+    def test_respects_top_k(self):
+        import torch
+
+        # logits for 5 classes; softmax then top-k=2
+        logits = torch.tensor([[1.0, 2.0, 0.0, 0.5, 3.0]])
+        id2label = {0: "a", 1: "b", 2: "c", 3: "d", 4: "e"}
+        out = _logits_to_classifications(logits, id2label, top_k=2)
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0]["label"], "e")
+        self.assertEqual(out[1]["label"], "b")
+
+    def test_sorted_by_score_descending(self):
+        import torch
+
+        logits = torch.tensor([[0.0, 1.0, 2.0]])
+        id2label = {0: "a", 1: "b", 2: "c"}
+        out = _logits_to_classifications(logits, id2label, top_k=3)
+        self.assertEqual(len(out), 3)
+        self.assertGreaterEqual(out[0]["score"], out[1]["score"])
+        self.assertGreaterEqual(out[1]["score"], out[2]["score"])
+        self.assertEqual(out[0]["label"], "c")
+        self.assertEqual(out[1]["label"], "b")
+        self.assertEqual(out[2]["label"], "a")
+
+    def test_output_schema(self):
+        import torch
+
+        logits = torch.tensor([[0.0, 1.0]])
+        id2label = {0: "x", 1: "y"}
+        out = _logits_to_classifications(logits, id2label, top_k=2)
+        self.assertEqual(len(out), 2)
+        for d in out:
+            self.assertIn("label", d)
+            self.assertIn("score", d)
+            self.assertIsInstance(d["label"], str)
+            self.assertIsInstance(d["score"], float)
+            self.assertGreaterEqual(d["score"], 0.0)
+            self.assertLessEqual(d["score"], 1.0)
+
+    def test_unknown_label_id_uses_str_of_id(self):
+        import torch
+
+        logits = torch.tensor([[1.0, 0.0]])
+        id2label = {0: "known"}
+        out = _logits_to_classifications(logits, id2label, top_k=2)
+        self.assertEqual(len(out), 2)
+        self.assertEqual(out[0]["label"], "known")
+        self.assertEqual(out[1]["label"], "1")
+
+
 class TestFilterHuggingfaceVision(unittest.TestCase):
     """Fast tests: config validation only. No model download."""
 
@@ -202,7 +267,65 @@ class TestFilterHuggingfaceVision(unittest.TestCase):
                     outputs="",
                     model_id="x",
                     revision="main",
+                    detection_type="unknown-task",
+                )
+            )
+
+    def test_normalize_config_accepts_image_classification(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="google/vit-base-patch16-224",
+                revision="main",
+                detection_type="image-classification",
+                top_k=5,
+            )
+        )
+        self.assertEqual(config.detection_type, "image-classification")
+        self.assertEqual(config.model_id, "google/vit-base-patch16-224")
+        self.assertEqual(config.revision, "main")
+        self.assertEqual(config.top_k, 5)
+
+    def test_normalize_config_image_classification_does_not_require_text_labels(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="facebook/convnext-tiny-224",
+                revision="main",
+                detection_type="image-classification",
+            )
+        )
+        self.assertEqual(config.detection_type, "image-classification")
+        self.assertIsNone(config.text_labels)
+
+    def test_normalize_config_image_classification_rejects_invalid_top_k(self):
+        with self.assertRaises(ValueError) as ctx:
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="google/vit-base-patch16-224",
+                    revision="main",
                     detection_type="image-classification",
+                    top_k=0,
+                )
+            )
+        self.assertIn("top_k", str(ctx.exception).lower())
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="google/vit-base-patch16-224",
+                    revision="main",
+                    detection_type="image-classification",
+                    top_k=1001,
                 )
             )
 

@@ -3,6 +3,12 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.2.0 - 2026-02-13
+### Added
+- Image classification backend (AutoImageProcessor + AutoModelForImageClassification); supports ViT and ConvNeXt (e.g. `google/vit-base-patch16-224`, `facebook/convnext-tiny-224`)
+- New `detection_type="image-classification"` with config `top_k`; output `classifications` (label, score) in `frame.data["subjects"]["huggingface_vision"]`
+- Optional visualization for classification (top label + score as text on image)
+- Script `scripts/image_classification.py` (VideoIn → FilterHuggingfaceVision → Webvis)
 
 ## v0.1.0 - 2026-02-10
 

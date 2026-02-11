@@ -1,16 +1,49 @@
 # Supported models by detection type
 
-The filter supports multiple detection variants via backends; each uses a different processor/model API. Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`, and `detections` (label, score, box xyxy). Config uses `detection_type`: `"closed-vocabulary"`, `"open-vocabulary"`, or `"open-vocabulary-grounding"`.
+The filter supports multiple detection variants via backends; each uses a different processor/model API. Output is written to `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`; for object detection add `detections` (label, score, box xyxy); for image classification add `classifications` (label, score). Config uses `detection_type`: `"closed-vocabulary"`, `"open-vocabulary"`, `"open-vocabulary-grounding"`, or `"image-classification"`.
 
 ## Pipelines
 
 | Script | Detection type | Model source |
 |--------|----------------|--------------|
 | `scripts/object_detection.py` | Closed-vocabulary (DETR / RT-DETR) | `MODEL_ID` + `REVISION` from .env |
+| `scripts/image_classification.py` | Image classification (ViT / ConvNeXt) | `MODEL_ID` + `REVISION` from .env |
 | `scripts/zero_shot_object_detection.py` | Open-vocabulary (OWL-ViT) | Fixed in code: `google/owlvit-base-patch32` @ main |
 | `scripts/grounding_dino.py` | Open-vocabulary (Grounding DINO) | Fixed in code: MM Grounding DINO tiny @ main |
 
 The zero-shot and Grounding DINO scripts use a fixed model in code so the same .env (e.g. with `VIDEO_PATH`) can be shared without loading the wrong model.
+
+---
+
+## Image classification (ViT / ConvNeXt)
+
+Assigns one or more class labels to an image (e.g. ImageNet classes). Backend: `AutoImageProcessor` + `AutoModelForImageClassification`. No `text_labels` required; optional `top_k` (default 5) controls how many top classes to return.
+
+| MODEL_ID | REVISION |
+|----------|----------|
+| google/vit-base-patch16-224 | main |
+| facebook/convnext-tiny-224 | main |
+
+### Example .env (image classification pipeline)
+
+```bash
+MODEL_ID=google/vit-base-patch16-224
+REVISION=main
+VIDEO_PATH=./filter_example_video.mp4
+TOP_K=5
+PORT=8010
+```
+
+### Example config (image-classification, in code)
+
+```python
+FilterHuggingfaceVisionConfig(
+    detection_type="image-classification",
+    model_id="google/vit-base-patch16-224",
+    revision="main",
+    top_k=5,
+)
+```
 
 ---
 

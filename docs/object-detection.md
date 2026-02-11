@@ -67,3 +67,7 @@ When `draw_visualization=True` (in filter config):
 ## Supported models
 
 The filter uses Hugging Face `AutoImageProcessor` and `AutoModelForObjectDetection`, so any model supported by that API works (e.g. RT-DETR, DETR). The output of `post_process_object_detection` is normalized to the same schema whether the processor returns dict-style (`result["scores"]`) or attribute-style (`result.scores`) results.
+
+## See also
+
+- [Supported models — Image classification](supported-models#image-classification-vit--convnext) — ViT and ConvNeXt models for image classification (`detection_type="image-classification"`).
