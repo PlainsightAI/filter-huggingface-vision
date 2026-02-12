@@ -334,11 +334,9 @@ class FilterHuggingfaceVision(Filter):
             if isinstance(result, dict) and "classifications" in result:
                 _task = "image-classification"
                 payload = {
-                    "detection_type": detection_type,
                     "task": _task,
                     "model": {"id": model_id, "revision": self._revision},
                     "image": {"width": width, "height": height},
-                    "detections": [],
                     "classifications": result["classifications"],
                 }
             else:

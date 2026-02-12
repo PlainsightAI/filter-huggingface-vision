@@ -61,11 +61,8 @@ The filter returns processed frames with the following data structure:
 **Main Frame Data:**
 - Original frame data preserved
 - Processing results added to `frame.data["subjects"]["huggingface_vision"]`:
-  - `detection_type`: `"image-classification"`, `"closed-vocabulary"`, `"open-vocabulary"`, or `"open-vocabulary-grounding"` (payload also includes legacy `task` key)
-  - `model`: `{ "id": "<model_id>", "revision": "<revision>" }`
-  - `image`: `{ "width": int, "height": int }`
-  - **Object detection:** `detections`: list of `{ "label": str, "score": float, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
-  - **Image classification:** `classifications`: list of `{ "label": str, "score": float }` (top-k); `detections` is empty
+  - **Object detection:** `detection_type`, `task`, `model`, `image`, `detections` (list of label, score, box).
+  - **Image classification:** `task`, `model`, `image`, `classifications` (list of label, score); no `detection_type` or `detections`.
 
 **Visualization Topic (when `draw_visualization=True`):**
 - A separate frame is published on the configured topic (e.g. `viz`)
@@ -230,11 +227,9 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
 
 ```json
 {
-  "detection_type": "image-classification",
   "task": "image-classification",
   "model": { "id": "google/vit-base-patch16-224", "revision": "main" },
   "image": { "width": 1920, "height": 1080 },
-  "detections": [],
   "classifications": [
     { "label": "tabby cat", "score": 0.42 },
     { "label": "Egyptian cat", "score": 0.31 }

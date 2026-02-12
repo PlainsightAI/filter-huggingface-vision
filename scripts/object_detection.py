@@ -37,6 +37,10 @@ try:
     from dotenv import load_dotenv  # type: ignore[import-untyped]
 
     load_dotenv()
+    # Load .env from project root (parent of scripts/) so it works regardless of cwd
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _project_root = os.path.dirname(_script_dir)
+    load_dotenv(os.path.join(_project_root, ".env"))
 except ImportError:
     pass
 
