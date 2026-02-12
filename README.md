@@ -4,31 +4,43 @@
 [![Docker Version](https://img.shields.io/docker/v/plainsightai/openfilter-huggingface-vision?sort=semver)](https://hub.docker.com/r/plainsightai/openfilter-huggingface-vision)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/PlainsightAI/filter-huggingface-vision/blob/main/LICENSE)
 
-A generic filter that uses Hugging Face Transformers for vision (closed-vocabulary and open-vocabulary object detection) across video streams and OpenFilter pipelines. The filter uses a backend per detection type so multiple model interfaces (AutoImageProcessor, OwlViTProcessor, etc.) are supported with a single config and unified output format.
+A generic filter that uses Hugging Face Transformers for vision (object detection and image classification) across video streams and OpenFilter pipelines. The filter uses one backend per **Hugging Face API**: each `detection_type` maps to a specific processor + model API. **Each API supports all models on the Hugging Face Hub that are compatible with that API**—any model loadable by the same classes will work without code changes.
 
-### Methods in this release (first version)
+### Supported Hugging Face APIs
+
+We support the following Hugging Face APIs. Each API corresponds to one `detection_type`; each API supports **any model** from the Hub that works with that API (examples below are commonly used / tested).
+
+| HF API (processor + model) | `detection_type` | Example model IDs |
+|----------------------------|------------------|-------------------|
+| `AutoImageProcessor` + `AutoModelForImageClassification` | `image-classification` | `google/vit-base-patch16-224`, `facebook/convnext-tiny-224` |
+| `AutoImageProcessor` + `AutoModelForObjectDetection` | `closed-vocabulary` | `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50` |
+| `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
+| `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
+
+Full list and config examples: [docs/supported-models.md](docs/supported-models.md).
+
+### Methods and scripts
 
 | Method | Detection type | Script | Key config |
 |--------|----------------|--------|------------|
+| **Image classification** (ViT, ConvNeXt, etc.) | `image-classification` | `scripts/image_classification.py` | `MODEL_ID`, `REVISION`, `VIDEO_PATH`, optional `TOP_K` in `.env` |
 | **Closed-vocabulary** (DETR, RT-DETR, Conditional DETR) | `closed-vocabulary` | `scripts/object_detection.py` | `MODEL_ID`, `REVISION`, `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (Grounding DINO) | `open-vocabulary-grounding` | `scripts/grounding_dino.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 
-All methods write the same output shape to `frame.data["subjects"]["huggingface_vision"]` (see [Output Structure](#output-structure)). Supported model IDs per method: [docs/supported-models.md](docs/supported-models.md).
+Output is written to `frame.data["subjects"]["huggingface_vision"]` (see [Output Structure](#output-structure)). Object detection methods use `detections`; image classification uses `classifications`.
 
 ## Features
 
-- **Detection types**: `closed-vocabulary` (DETR, RT-DETR), `open-vocabulary` (OWL-ViT), and `open-vocabulary-grounding` (Grounding DINO) via pluggable backends
-- **Object Detection**: Run Hugging Face object-detection models with configurable `model_id`, `revision`, `threshold`, and `max_detections`
-- **Zero-shot detection**: OWL-ViT with `text_labels` (list of list of str) for open-vocabulary queries
-- **Grounding DINO**: Open-vocabulary detection with Grounding DINO / MM Grounding DINO (`AutoProcessor` + `AutoModelForZeroShotObjectDetection`) and `text_labels`
-- **Standardized Output**: JSON-serializable detections with label, score, and box (xyxy format) in `frame.data["subjects"]["huggingface_vision"]`
-- **Visualization**: Optional topic (e.g. `viz`) with bounding boxes and labels drawn on the image
-- **Frame Input**: Uses OpenFilter Frame convention (`frame.rw_bgr.image`); fallback to `frame.data[topic]` for custom pipelines
-- **Device Selection**: CPU or CUDA
-- **Pipeline Integration**: Works with OpenFilter pipeline architecture (VideoIn → FilterHuggingfaceVision → Webvis)
-- **Environment Configuration**: Configuration via environment variables or config dict
-- **Model Compatibility**: Supports both dict and object outputs from `post_process_object_detection` (e.g. RT-DETR and DETR-style processors)
+- **Supported APIs**: Four Hugging Face APIs—image classification, closed-vocabulary object detection, OWL-ViT zero-shot, Grounding DINO. Each API supports all Hub models compatible with that API (see table above).
+- **Detection types**: `image-classification`, `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding` via pluggable backends (one backend per API).
+- **Image classification**: Run ViT, ConvNeXt, or any `AutoModelForImageClassification` model with `model_id`, `revision`, `top_k`; output `classifications` (label, score).
+- **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output `detections` (label, score, box xyxy).
+- **Zero-shot detection**: OWL-ViT or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
+- **Standardized output**: JSON-serializable payload in `frame.data["subjects"]["huggingface_vision"]` (detections or classifications).
+- **Visualization**: Optional topic (e.g. `viz`) with bounding boxes/labels (detection) or top label + score (classification).
+- **Frame input**: OpenFilter convention (`frame.rw_bgr.image`); fallback to `frame.data[topic]`.
+- **Device selection**: CPU or CUDA. **Model compatibility**: Works with dict and object outputs from processors (e.g. RT-DETR, DETR).
 
 ## Architecture
 
@@ -49,10 +61,11 @@ The filter returns processed frames with the following data structure:
 **Main Frame Data:**
 - Original frame data preserved
 - Processing results added to `frame.data["subjects"]["huggingface_vision"]`:
-  - `detection_type`: `"closed-vocabulary"`, `"open-vocabulary"`, or `"open-vocabulary-grounding"` (payload also includes legacy `task` key)
+  - `detection_type`: `"image-classification"`, `"closed-vocabulary"`, `"open-vocabulary"`, or `"open-vocabulary-grounding"` (payload also includes legacy `task` key)
   - `model`: `{ "id": "<model_id>", "revision": "<revision>" }`
   - `image`: `{ "width": int, "height": int }`
-  - `detections`: list of `{ "label": str, "score": float, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
+  - **Object detection:** `detections`: list of `{ "label": str, "score": float, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
+  - **Image classification:** `classifications`: list of `{ "label": str, "score": float }` (top-k); `detections` is empty
 
 **Visualization Topic (when `draw_visualization=True`):**
 - A separate frame is published on the configured topic (e.g. `viz`)
@@ -97,11 +110,12 @@ PORT=8010
 |----------|------|---------|----------|-------|
 | `model_id` | string | — | Yes | Hugging Face model id (e.g. PekingU/rtdetr_r50vd) |
 | `revision` | string | — | Yes | Model revision (reproducibility) |
-| `detection_type` | string | "closed-vocabulary" | No | `closed-vocabulary`, `open-vocabulary`, or `open-vocabulary-grounding` |
+| `detection_type` | string | "closed-vocabulary" | No | `image-classification`, `closed-vocabulary`, `open-vocabulary`, or `open-vocabulary-grounding` |
+| `top_k` | int | 5 | No | For image-classification: number of top classes to return (1–1000) |
 | `text_labels` | list | — | For zero-shot / grounding | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
-| `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] |
+| `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] (not used for image-classification) |
 | `device` | string | "cpu" | No | "cpu" or "cuda" / cuda device index |
-| `max_detections` | int | 100 | No | Maximum number of detections per frame |
+| `max_detections` | int | 100 | No | Maximum number of detections per frame (object detection only) |
 | `input_topic` | string | "main" | No | Topic to read frame image from |
 | `output_topic` | string | "main" | No | Topic for processed frame |
 | `draw_visualization` | bool | false | No | Publish a topic with boxes/labels drawn |
@@ -112,6 +126,17 @@ PORT=8010
 ## Usage
 
 Use the script that matches your method (see table above). All scripts run VideoIn → FilterHuggingfaceVision → Webvis and serve the UI at `http://localhost:PORT` (default 8010).
+
+### Image classification pipeline
+
+Run image classification with a ViT, ConvNeXt, or any `AutoModelForImageClassification` model:
+
+```bash
+# In .env: MODEL_ID (e.g. google/vit-base-patch16-224 or facebook/convnext-tiny-224), REVISION=main, VIDEO_PATH, optional TOP_K
+python scripts/image_classification.py
+```
+
+Output: `frame.data["subjects"]["huggingface_vision"]` with `classifications` (list of label, score). Visualization shows the top label + score on the image.
 
 ### Closed-vocabulary (object detection pipeline)
 
@@ -179,15 +204,16 @@ make test-coverage
 
 ### Visualization
 
-When `draw_visualization=True`, the filter publishes an additional frame on the visualization topic (e.g. `viz`) with bounding boxes and labels drawn. In the pipeline script, Webvis is configured to subscribe to both `main` and `viz` so you can view detections overlaid on the video.
+When `draw_visualization=True`, the filter publishes an additional frame on the visualization topic (e.g. `viz`): bounding boxes and labels for object detection, or top label + score for image classification. Webvis subscribes to both `main` and `viz` so you can view results overlaid on the video.
 
 ## Output Structure
 
-**Frame payload** (`frame.data["subjects"]["huggingface_vision"]`):
+**Object detection** (`frame.data["subjects"]["huggingface_vision"]`):
 
 ```json
 {
   "detection_type": "closed-vocabulary",
+  "task": "object-detection",
   "model": { "id": "PekingU/rtdetr_r50vd", "revision": "main" },
   "image": { "width": 1920, "height": 1080 },
   "detections": [
@@ -200,6 +226,22 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
 }
 ```
 
+**Image classification** (`frame.data["subjects"]["huggingface_vision"]`):
+
+```json
+{
+  "detection_type": "image-classification",
+  "task": "image-classification",
+  "model": { "id": "google/vit-base-patch16-224", "revision": "main" },
+  "image": { "width": 1920, "height": 1080 },
+  "detections": [],
+  "classifications": [
+    { "label": "tabby cat", "score": 0.42 },
+    { "label": "Egyptian cat", "score": 0.31 }
+  ]
+}
+```
+
 ## Development
 
 ### Project Structure
@@ -207,14 +249,17 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
 ```
 filter-huggingface-vision/
 ├── filter_huggingface_vision/
-│   └── filter.py              # Main filter implementation
+│   ├── filter.py              # Main filter implementation
+│   └── backends/              # One backend per HF API (image_classification, object_detection, owlvit, grounding_dino)
 ├── scripts/
+│   ├── image_classification.py
 │   ├── object_detection.py
 │   ├── zero_shot_object_detection.py
 │   └── grounding_dino.py
 ├── docs/
 │   ├── overview.md
-│   └── object-detection.md
+│   ├── object-detection.md
+│   └── supported-models.md
 ├── tests/
 ├── models.toml                # Model cache config (e.g. for Docker)
 ├── prepare_models.py          # Model prep for publish
@@ -224,7 +269,7 @@ filter-huggingface-vision/
 ### Key Dependencies
 
 - `openfilter[all]~=0.1.0` - Filter framework
-- `transformers>=4.40.0` - Hugging Face AutoImageProcessor / AutoModelForObjectDetection
+- `transformers>=4.40.0` - Hugging Face APIs (AutoImageProcessor + AutoModelForImageClassification / AutoModelForObjectDetection, OwlViT, AutoModelForZeroShotObjectDetection)
 - `torch` - Inference
 - `pillow` - Image handling
 - `huggingface-hub` - Model loading
@@ -240,7 +285,7 @@ make test-coverage
 ## Troubleshooting
 
 ### Model or revision errors
-- Ensure `MODEL_ID` and `REVISION` are set and the model is compatible with `AutoImageProcessor` + `AutoModelForObjectDetection` (e.g. RT-DETR, DETR).
+- Ensure `MODEL_ID` and `REVISION` are set. The model must be compatible with the **API** for your `detection_type`: e.g. for `image-classification` use a model that loads with `AutoModelForImageClassification` (ViT, ConvNeXt); for `closed-vocabulary` use `AutoModelForObjectDetection` (RT-DETR, DETR). See [Supported Hugging Face APIs](#supported-hugging-face-apis) and [docs/supported-models.md](docs/supported-models.md).
 - Use a specific revision (e.g. `main` or a commit hash) for reproducibility.
 
 ### CUDA / device

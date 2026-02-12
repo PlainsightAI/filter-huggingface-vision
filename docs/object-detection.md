@@ -4,18 +4,18 @@ sidebar_label: Object detection
 sidebar_position: 2
 ---
 
-This document describes the **first Hugging Face object detection support** in the filter: running detection with `AutoImageProcessor` and `AutoModelForObjectDetection`, writing results into frame data, and optionally publishing a visualization topic.
+This document describes **closed-vocabulary object detection** in the filter. The filter supports several Hugging Face APIs; this one uses `AutoImageProcessor` + `AutoModelForObjectDetection`. **That API supports all models on the Hub compatible with it** (e.g. DETR, RT-DETR, Conditional DETR). See [Supported models](supported-models) for the full list of APIs and example model IDs.
 
 ## Overview
 
-- **Object detection**: Load and run Hugging Face object detection models (e.g. `PekingU/rtdetr_r50vd`) via `AutoImageProcessor` and `AutoModelForObjectDetection`.
+- **Object detection**: Load and run Hugging Face object detection models (e.g. `PekingU/rtdetr_r50vd`) via the `AutoImageProcessor` + `AutoModelForObjectDetection` API. Any model that loads with this API is supported.
 - **Config**: `model_id`, `revision` (required), `threshold`, `device`, `max_detections`; optional visualization options (`draw_visualization`, `visualization_topic`).
 - **Output**: Results are written to `frame.data["subjects"]["huggingface_vision"]` with `task`, `model`, `image`, and `detections` (label, score, box in xyxy format).
 - **Visualization**: When `draw_visualization=True`, the filter publishes a second topic (e.g. `viz`) with bounding boxes and labels drawn on the image.
 
 ## Example pipeline
 
-The script `scripts/object_detection_pipeline.py` runs the pipeline **VideoIn → FilterHuggingfaceVision → Webvis**. It reads configuration from the environment (e.g. a `.env` file in the project root).
+The script `scripts/object_detection.py` runs the pipeline **VideoIn → FilterHuggingfaceVision → Webvis**. It reads configuration from the environment (e.g. a `.env` file in the project root).
 
 ### Example `.env`
 
@@ -31,7 +31,7 @@ THRESHOLD=0.3
 From the project root (`.env` is loaded from the project root regardless of cwd):
 
 ```bash
-python scripts/object_detection_pipeline.py
+python scripts/object_detection.py
 ```
 
 Web UI: **http://localhost:8010**.

@@ -4,11 +4,17 @@ sidebar_label: Overview
 sidebar_position: 1
 ---
 
-The **Huggingface Vision** filter adds Hugging Face–based object detection and image classification to OpenFilter pipelines. It runs detection with `AutoImageProcessor` and `AutoModelForObjectDetection`, or classification with `AutoModelForImageClassification`, writes results into frame data, and optionally publishes a visualization topic (bounding boxes or top label).
+The **Huggingface Vision** filter adds Hugging Face–based object detection and image classification to OpenFilter pipelines. The filter supports a fixed set of **Hugging Face APIs** (one per `detection_type`). **Each API supports all models on the Hugging Face Hub that are compatible with that API**—e.g. the image-classification API supports any model loadable with `AutoImageProcessor` + `AutoModelForImageClassification` (ViT, ConvNeXt, ResNet, etc.). Results are written into frame data; optionally a visualization topic is published (bounding boxes or top label).
 
 The content of this document will be published to production documentation on every production release.
 
 ### ✨ Features
+
+- **Supported APIs** (each supports all compatible Hub models):
+  - **Image classification:** `AutoImageProcessor` + `AutoModelForImageClassification` — e.g. `google/vit-base-patch16-224`, `facebook/convnext-tiny-224`.
+  - **Object detection (closed-vocabulary):** `AutoImageProcessor` + `AutoModelForObjectDetection` — e.g. `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50`.
+  - **Zero-shot (OWL-ViT):** `OwlViTProcessor` + `OwlViTForObjectDetection` — e.g. `google/owlvit-base-patch32`.
+  - **Zero-shot (Grounding DINO):** `AutoProcessor` + `AutoModelForZeroShotObjectDetection` — e.g. `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det`.
 
 - **Object detection**
   - Load and run Hugging Face object detection models (e.g. RT-DETR, DETR).
