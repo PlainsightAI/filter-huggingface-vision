@@ -11,7 +11,7 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 | `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
 
-Output is written to `frame.data["subjects"]["huggingface_vision"]`: object detection payload has `detection_type`, `task`, `model`, `image`, `detections`; image classification payload has `task`, `model`, `image`, `classifications` (no `detection_type`).
+Output is written to `frame.data["meta"]`: `detections` (list of `{class, rois}` with normalized coords), `detection_confidence`; image classification also adds `classification` (`architecture`, `classes`, `confidences`). Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved.
 
 ## Pipelines
 

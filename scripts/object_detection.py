@@ -28,7 +28,7 @@ Example .env:
     PORT=8010
 
 Output:
-    frame.data["subjects"]["huggingface_vision"] with detection_type, model, image, detections (label, score, box xyxy).
+    frame.data["meta"] with detections ({class, rois} normalized), detection_confidence. Upstream meta preserved.
 """
 
 import os

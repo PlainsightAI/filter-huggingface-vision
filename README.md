@@ -28,7 +28,7 @@ Full list and config examples: [docs/supported-models.md](docs/supported-models.
 | **Open-vocabulary** (OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (Grounding DINO) | `open-vocabulary-grounding` | `scripts/grounding_dino.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 
-Output is written to `frame.data["subjects"]["huggingface_vision"]` (see [Output Structure](#output-structure)). Object detection methods use `detections`; image classification uses `classifications`.
+Output is written to `frame.data["meta"]` (see [Output Structure](#output-structure)): `detections` (list of `{class, rois}` with normalized coords), `detection_confidence`; image classification also adds `classification` (`architecture`, `classes`, `confidences`).
 
 ## Features
 
@@ -37,7 +37,7 @@ Output is written to `frame.data["subjects"]["huggingface_vision"]` (see [Output
 - **Image classification**: Run ViT, ConvNeXt, or any `AutoModelForImageClassification` model with `model_id`, `revision`, `top_k`; output `classifications` (label, score).
 - **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output `detections` (label, score, box xyxy).
 - **Zero-shot detection**: OWL-ViT or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
-- **Standardized output**: JSON-serializable payload in `frame.data["subjects"]["huggingface_vision"]` (detections or classifications).
+- **Standardized output**: JSON-serializable payload in `frame.data["meta"]` (detections, detection_confidence; classification adds `meta.classification`).
 - **Visualization**: Optional topic (e.g. `viz`) with bounding boxes/labels (detection) or top label + score (classification).
 - **Frame input**: OpenFilter convention (`frame.rw_bgr.image`); fallback to `frame.data[topic]`.
 - **Device selection**: CPU or CUDA. **Model compatibility**: Works with dict and object outputs from processors (e.g. RT-DETR, DETR).
@@ -59,14 +59,15 @@ The filter follows the OpenFilter pattern with three main stages:
 The filter returns processed frames with the following data structure:
 
 **Main Frame Data:**
-- Original frame data preserved
-- Processing results added to `frame.data["subjects"]["huggingface_vision"]`:
-  - **Object detection:** `detection_type`, `task`, `model`, `image`, `detections` (list of label, score, box).
-  - **Image classification:** `task`, `model`, `image`, `classifications` (list of label, score); no `detection_type` or `detections`.
+- Original frame data preserved (existing `meta` keys such as `id`, `ts`, `src`, `src_fps` are kept).
+- Processing results added to `frame.data["meta"]`:
+  - **detections**: list of `{ class, rois }` with `rois` normalized [0,1] as `[[xmin, ymin, xmax, ymax]]`.
+  - **detection_confidence**: mean score (or top score for image-classification).
+  - **classification** (image-classification only): `{ architecture: "huggingface", classes: [...], confidences: [...] }`.
 
 **Visualization Topic (when `draw_visualization=True`):**
-- A separate frame is published on the configured topic (e.g. `viz`)
-- Image has bounding boxes and labels drawn; `frame.data["meta"]` includes `detections` and `detection_confidence`
+- A separate frame is published on the configured topic (e.g. `viz`).
+- Image has bounding boxes and labels drawn; `frame.data["meta"]` preserves upstream meta and includes `detections`, `detection_confidence`, and (for classification) `classification`.
 
 ## Installation
 
@@ -133,7 +134,7 @@ Run image classification with a ViT, ConvNeXt, or any `AutoModelForImageClassifi
 python scripts/image_classification.py
 ```
 
-Output: `frame.data["subjects"]["huggingface_vision"]` with `classifications` (list of label, score). Visualization shows the top label + score on the image.
+Output: `frame.data["meta"]` with `detections`, `detection_confidence`, and `classification` (`architecture`, `classes`, `confidences`). Visualization shows the top label + score on the image.
 
 ### Closed-vocabulary (object detection pipeline)
 
@@ -173,7 +174,7 @@ FilterHuggingfaceVisionConfig(
 )
 ```
 
-Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`, and `detections` (label, score, box).
+Output format is the same: `frame.data["meta"]` with `detections` (list of `{class, rois}` normalized), `detection_confidence`.
 
 ### Grounding DINO pipeline
 
@@ -205,35 +206,38 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
 
 ## Output Structure
 
-**Object detection** (`frame.data["subjects"]["huggingface_vision"]`):
+**Object detection** (`frame.data["meta"]`):
 
 ```json
 {
-  "detection_type": "closed-vocabulary",
-  "task": "object-detection",
-  "model": { "id": "PekingU/rtdetr_r50vd", "revision": "main" },
-  "image": { "width": 1920, "height": 1080 },
+  "id": 38,
+  "ts": 1761090922.42,
+  "src": "file:///path/to/video.mp4",
+  "src_fps": 25.0,
   "detections": [
-    {
-      "label": "person",
-      "score": 0.95,
-      "box": { "format": "xyxy", "xmin": 100, "ymin": 200, "xmax": 300, "ymax": 500 }
-    }
-  ]
+    { "class": "person", "rois": [[0.12, 0.19, 0.35, 0.46]] }
+  ],
+  "detection_confidence": 0.95
 }
 ```
 
-**Image classification** (`frame.data["subjects"]["huggingface_vision"]`):
+**Image classification** (`frame.data["meta"]`):
 
 ```json
 {
-  "task": "image-classification",
-  "model": { "id": "google/vit-base-patch16-224", "revision": "main" },
-  "image": { "width": 1920, "height": 1080 },
-  "classifications": [
-    { "label": "tabby cat", "score": 0.42 },
-    { "label": "Egyptian cat", "score": 0.31 }
-  ]
+  "id": 38,
+  "ts": 1761090922.42,
+  "src": "file:///path/to/video.mp4",
+  "src_fps": 25.0,
+  "detections": [
+    { "class": "tabby cat", "rois": [[0.0, 0.0, 1.0, 1.0]] }
+  ],
+  "detection_confidence": 0.42,
+  "classification": {
+    "architecture": "huggingface",
+    "classes": ["tabby cat", "Egyptian cat"],
+    "confidences": [0.42, 0.31]
+  }
 }
 ```
 

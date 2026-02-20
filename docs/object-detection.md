@@ -10,7 +10,7 @@ This document describes **closed-vocabulary object detection** in the filter. Th
 
 - **Object detection**: Load and run Hugging Face object detection models (e.g. `PekingU/rtdetr_r50vd`) via the `AutoImageProcessor` + `AutoModelForObjectDetection` API. Any model that loads with this API is supported.
 - **Config**: `model_id`, `revision` (required), `threshold`, `device`, `max_detections`; optional visualization options (`draw_visualization`, `visualization_topic`).
-- **Output**: Results are written to `frame.data["subjects"]["huggingface_vision"]` with `task`, `model`, `image`, and `detections` (label, score, box in xyxy format).
+- **Output**: Results are written to `frame.data["meta"]` with `detections` (list of `{class, rois}` with rois normalized [0,1]) and `detection_confidence`. Upstream meta is preserved.
 - **Visualization**: When `draw_visualization=True`, the filter publishes a second topic (e.g. `viz`) with bounding boxes and labels drawn on the image.
 
 ## Example pipeline
@@ -48,13 +48,10 @@ Web UI: **http://localhost:8010**.
 
 ## Output format
 
-Each processed frame gets:
+Each processed frame gets `frame.data["meta"]` updated (upstream meta preserved):
 
-- **`frame.data["subjects"]["huggingface_vision"]`**:
-  - `task`: `"object-detection"`
-  - `model`: `{ "id": "<model_id>", "revision": "<revision>" }`
-  - `image`: `{ "width": <int>, "height": <int> }`
-  - `detections`: list of `{ "label": "<str>", "score": <float>, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
+- **`detections`**: list of `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates normalized [0, 1].
+- **`detection_confidence`**: mean of detection scores.
 
 ## Visualization topic
 

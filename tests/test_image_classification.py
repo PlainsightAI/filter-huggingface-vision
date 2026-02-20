@@ -127,21 +127,18 @@ class TestImageClassificationFilter(unittest.TestCase):
             filter_inst.shutdown()
 
         self.assertIn("main", out)
-        self.assertIn("subjects", frame.data)
-        self.assertIn("huggingface_vision", frame.data["subjects"])
-        payload = frame.data["subjects"]["huggingface_vision"]
-        self.assertEqual(payload["task"], "image-classification")
-        self.assertNotIn("detection_type", payload)
-        self.assertEqual(payload["model"]["id"], "google/vit-base-patch16-224")
-        self.assertEqual(payload["model"]["revision"], "main")
-        self.assertNotIn("detections", payload)
-        self.assertEqual(len(payload["classifications"]), 2)
-        self.assertEqual(payload["classifications"][0]["label"], "tabby_cat")
-        self.assertEqual(payload["classifications"][0]["score"], 0.92)
-        self.assertEqual(payload["classifications"][1]["label"], "Egyptian_cat")
-        self.assertEqual(payload["classifications"][1]["score"], 0.05)
-        self.assertEqual(payload["image"]["width"], 224)
-        self.assertEqual(payload["image"]["height"], 224)
+        self.assertIn("meta", frame.data)
+        meta = frame.data["meta"]
+        self.assertIn("detections", meta)
+        self.assertIn("detection_confidence", meta)
+        self.assertIn("classification", meta)
+        self.assertEqual(len(meta["detections"]), 1)
+        self.assertEqual(meta["detections"][0]["class"], "tabby_cat")
+        self.assertEqual(meta["detections"][0]["rois"], [[0.0, 0.0, 1.0, 1.0]])
+        self.assertEqual(meta["detection_confidence"], 0.92)
+        self.assertEqual(meta["classification"]["architecture"], "huggingface")
+        self.assertEqual(meta["classification"]["classes"], ["tabby_cat", "Egyptian_cat"])
+        self.assertEqual(meta["classification"]["confidences"], [0.92, 0.05])
 
 
 class TestImageClassificationConfig(unittest.TestCase):

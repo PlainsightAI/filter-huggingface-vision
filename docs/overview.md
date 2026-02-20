@@ -19,11 +19,11 @@ The content of this document will be published to production documentation on ev
 - **Object detection**
   - Load and run Hugging Face object detection models (e.g. RT-DETR, DETR).
   - Configurable `model_id`, `revision` (required), `threshold`, `device`, `max_detections`.
-  - Results in `frame.data["subjects"]["huggingface_vision"]` with detections (label, score, box xyxy).
+  - Results in `frame.data["meta"]` with `detections` (list of `{class, rois}` normalized), `detection_confidence`.
 
 - **Image classification**
   - Load and run Hugging Face image classification models (e.g. ViT, ConvNeXt) via `detection_type="image-classification"`.
-  - Configurable `model_id`, `revision` (required), `top_k`, `device`. Output `classifications` (list of label, score) in `frame.data["subjects"]["huggingface_vision"]`.
+  - Configurable `model_id`, `revision` (required), `top_k`, `device`. Output in `frame.data["meta"]` with `detections`, `detection_confidence`, and `classification` (`architecture`, `classes`, `confidences`).
 
 - **Visualization**
   - Optional topic (e.g. `viz`) with bounding boxes and labels (object detection) or top label + score (image classification), same pattern as the Protege filter.

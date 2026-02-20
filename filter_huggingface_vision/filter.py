@@ -1,3 +1,4 @@
+import copy
 import logging
 import os
 from openfilter.filter_runtime.filter import FilterConfig, Filter, Frame
@@ -63,6 +64,46 @@ def _image_from_frame(frame, input_topic):
         return Image.fromarray(rgb.astype(np.uint8)), w, h
 
     return None, 0, 0
+
+
+def _payload_to_meta_format(payload, width, height):
+    """Convert backend payload to meta format.
+    Returns (detections_meta, detection_confidence, classification_meta).
+    - detections: list of {class, rois} with rois normalized [0,1].
+    - classification_meta: for image-classification only, {architecture, classes, confidences}; else None.
+    """
+    detections_meta = []
+    confidence = 0.0
+    classification_meta = None
+    w, h = width or 1, height or 1
+    if payload.get("detections"):
+        scores = []
+        for d in payload["detections"]:
+            label = d.get("label", "")
+            box = d.get("box", {})
+            xmin = box.get("xmin", 0) / w
+            ymin = box.get("ymin", 0) / h
+            xmax = box.get("xmax", 0) / w
+            ymax = box.get("ymax", 0) / h
+            detections_meta.append({"class": label, "rois": [[xmin, ymin, xmax, ymax]]})
+            scores.append(d.get("score", 0.0))
+        if scores:
+            confidence = sum(scores) / len(scores)
+    elif payload.get("classifications"):
+        cls_list = payload["classifications"]
+        if cls_list:
+            top = cls_list[0]
+            detections_meta.append({
+                "class": top.get("label", ""),
+                "rois": [[0.0, 0.0, 1.0, 1.0]],
+            })
+            confidence = top.get("score", 0.0)
+            classification_meta = {
+                "architecture": "huggingface",
+                "classes": [c.get("label", "") for c in cls_list],
+                "confidences": [float(c.get("score", 0.0)) for c in cls_list],
+            }
+    return detections_meta, confidence, classification_meta
 
 
 def _create_visualization(image_bgr, payload):
@@ -162,17 +203,15 @@ class FilterHuggingfaceVision(Filter):
     The filter returns processed frames with the following data structure:
 
     Frame data:
-    - Original frame data preserved
-    - Processing results added to frame.data["subjects"]["huggingface_vision"]:
-
-      - detection_type: "closed-vocabulary" | "open-vocabulary" (task kept for backward compat)
-      - model: { id, revision }
-      - image: { width, height }
-      - detections: list of { label, score, box: { format, xmin, ymin, xmax, ymax } }
+    - Original frame data preserved (existing meta keys such as id, ts, src, src_fps are kept).
+    - Processing results added to frame.data["meta"]:
+      - detections: list of { class, rois } with rois normalized [0,1] as [[xmin, ymin, xmax, ymax]]
+      - detection_confidence: mean score (or top score for image-classification)
+      - classification (image-classification only): { architecture: "huggingface", classes: [...], confidences: [...] }
 
     Visualization Frame (topic: "viz" when draw_visualization=True):
     - Image with bounding boxes and labels drawn
-    - frame.data["meta"]: detections, detection_confidence
+    - frame.data["meta"]: upstream meta preserved, plus detections and detection_confidence (same format)
     - When multiple frames are processed, the viz topic uses the first frame's image and detections (same as filter-protege-model).
 
     Key Features:
@@ -355,9 +394,16 @@ class FilterHuggingfaceVision(Filter):
                 }
             if not hasattr(frame, "data"):
                 frame.data = {}
-            if "subjects" not in frame.data:
-                frame.data["subjects"] = {}
-            frame.data["subjects"]["huggingface_vision"] = payload
+            # Meta format: detections=[{class, rois}], detection_confidence; for classification also meta.classification
+            if "meta" not in frame.data:
+                frame.data["meta"] = {}
+            detections_meta, confidence, classification_meta = _payload_to_meta_format(
+                payload, width, height
+            )
+            frame.data["meta"]["detections"] = detections_meta
+            frame.data["meta"]["detection_confidence"] = confidence
+            if classification_meta is not None:
+                frame.data["meta"]["classification"] = classification_meta
 
             if main_frame_payload is None:
                 main_frame_payload = payload
@@ -387,26 +433,18 @@ class FilterHuggingfaceVision(Filter):
                 image_bgr = main_frame_for_viz.rw_bgr.image
             if image_bgr is not None:
                 vis_image = _create_visualization(image_bgr, main_frame_payload)
-                viz_meta = {
-                    "meta": {
-                        "detections": main_frame_payload.get("detections", []),
-                        "detection_confidence": 0.0,
-                    }
-                }
-                if main_frame_payload.get("detections"):
-                    scores = [
-                        d.get("score", 0) for d in main_frame_payload["detections"]
-                    ]
-                    viz_meta["meta"]["detection_confidence"] = sum(scores) / len(scores)
-                if main_frame_payload.get("classifications"):
-                    scores = [
-                        c.get("score", 0)
-                        for c in main_frame_payload["classifications"]
-                    ]
-                    if scores:
-                        viz_meta["meta"]["detection_confidence"] = sum(scores) / len(
-                            scores
-                        )
+                # Preserve upstream meta (id, ts, src, src_fps), add detections + detection_confidence
+                incoming_data = getattr(main_frame_for_viz, "data", None) or {}
+                viz_meta = {"meta": copy.deepcopy(incoming_data.get("meta", {}))}
+                detections_meta, confidence, classification_meta = _payload_to_meta_format(
+                    main_frame_payload,
+                    main_frame_payload.get("image", {}).get("width"),
+                    main_frame_payload.get("image", {}).get("height"),
+                )
+                viz_meta["meta"]["detections"] = detections_meta
+                viz_meta["meta"]["detection_confidence"] = confidence
+                if classification_meta is not None:
+                    viz_meta["meta"]["classification"] = classification_meta
                 frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
 
         return frames
