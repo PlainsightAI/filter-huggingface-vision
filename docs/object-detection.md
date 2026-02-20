@@ -48,10 +48,25 @@ Web UI: **http://localhost:8010**.
 
 ## Output format
 
-Each processed frame gets `frame.data["meta"]` updated (upstream meta preserved):
+Each processed frame has `frame.data["meta"]` updated. Upstream keys (`id`, `ts`, `src`, `src_fps`) are preserved. The filter adds:
 
-- **`detections`**: list of `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates normalized [0, 1].
-- **`detection_confidence`**: mean of detection scores.
+- **`detections`**: list of objects `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates normalized in [0, 1].
+- **`detection_confidence`**: float, mean of detection scores.
+
+Example (excerpt):
+
+```json
+{
+  "id": 38,
+  "ts": 1761090922.42,
+  "src": "file:///path/to/video.mp4",
+  "src_fps": 25.0,
+  "detections": [
+    { "class": "person", "rois": [[0.12, 0.19, 0.35, 0.46]] }
+  ],
+  "detection_confidence": 0.95
+}
+```
 
 ## Visualization topic
 

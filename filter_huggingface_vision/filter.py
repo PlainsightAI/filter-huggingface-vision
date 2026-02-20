@@ -372,6 +372,7 @@ class FilterHuggingfaceVision(Filter):
             result = self._backend.run(image, width, height, config)
             if isinstance(result, dict) and "classifications" in result:
                 _task = "image-classification"
+                _detection_type = "image-classification"
                 payload = {
                     "task": _task,
                     "model": {"id": model_id, "revision": self._revision},
@@ -385,6 +386,7 @@ class FilterHuggingfaceVision(Filter):
                     if detection_type == "closed-vocabulary"
                     else "zero-shot-object-detection"
                 )
+                _detection_type = detection_type
                 payload = {
                     "detection_type": detection_type,
                     "task": _task,
@@ -394,7 +396,7 @@ class FilterHuggingfaceVision(Filter):
                 }
             if not hasattr(frame, "data"):
                 frame.data = {}
-            # Meta format: detections=[{class, rois}], detection_confidence; for classification also meta.classification
+            # Meta format: detections, detection_confidence, method info (detection_type, task, model)
             if "meta" not in frame.data:
                 frame.data["meta"] = {}
             detections_meta, confidence, classification_meta = _payload_to_meta_format(
@@ -402,6 +404,9 @@ class FilterHuggingfaceVision(Filter):
             )
             frame.data["meta"]["detections"] = detections_meta
             frame.data["meta"]["detection_confidence"] = confidence
+            frame.data["meta"]["detection_type"] = _detection_type
+            frame.data["meta"]["task"] = _task
+            frame.data["meta"]["model"] = {"id": model_id, "revision": self._revision}
             if classification_meta is not None:
                 frame.data["meta"]["classification"] = classification_meta
 
@@ -443,6 +448,14 @@ class FilterHuggingfaceVision(Filter):
                 )
                 viz_meta["meta"]["detections"] = detections_meta
                 viz_meta["meta"]["detection_confidence"] = confidence
+                _dt = main_frame_payload.get("detection_type")
+                if _dt is None and main_frame_payload.get("classifications"):
+                    _dt = "image-classification"
+                elif _dt is None:
+                    _dt = "closed-vocabulary"
+                viz_meta["meta"]["detection_type"] = _dt
+                viz_meta["meta"]["task"] = main_frame_payload.get("task", "object-detection")
+                viz_meta["meta"]["model"] = main_frame_payload.get("model", {"id": "", "revision": ""})
                 if classification_meta is not None:
                     viz_meta["meta"]["classification"] = classification_meta
                 frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")

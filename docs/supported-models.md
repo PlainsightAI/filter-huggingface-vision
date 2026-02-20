@@ -11,7 +11,11 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 | `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
 
-Output is written to `frame.data["meta"]`: `detections` (list of `{class, rois}` with normalized coords), `detection_confidence`; image classification also adds `classification` (`architecture`, `classes`, `confidences`). Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved.
+**Output format:** All results are written to `frame.data["meta"]`. Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved. The filter adds:
+
+- **`detections`**: list of `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates in [0, 1].
+- **`detection_confidence`**: float (mean of scores, or top score for image-classification).
+- **`classification`** (image-classification only): `{ "architecture": "huggingface", "classes": [...], "confidences": [...] }`.
 
 ## Pipelines
 
@@ -57,6 +61,24 @@ FilterHuggingfaceVisionConfig(
     top_k=5,
 )
 ```
+
+### Output (image-classification)
+
+`frame.data["meta"]` includes `detections` (one entry with top class and `rois: [[0,0,1,1]]`), `detection_confidence`, and `classification`:
+
+```json
+{
+  "detections": [{ "class": "tabby cat", "rois": [[0.0, 0.0, 1.0, 1.0]] }],
+  "detection_confidence": 0.42,
+  "classification": {
+    "architecture": "huggingface",
+    "classes": ["tabby cat", "Egyptian cat"],
+    "confidences": [0.42, 0.31]
+  }
+}
+```
+
+(Upstream keys `id`, `ts`, `src`, `src_fps` are preserved.)
 
 ---
 

@@ -35,7 +35,7 @@ Output is written to `frame.data["meta"]` (see [Output Structure](#output-struct
 - **Supported APIs**: Four Hugging Face APIs—image classification, closed-vocabulary object detection, OWL-ViT zero-shot, Grounding DINO. Each API supports all Hub models compatible with that API (see table above).
 - **Detection types**: `image-classification`, `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding` via pluggable backends (one backend per API).
 - **Image classification**: Run ViT, ConvNeXt, or any `AutoModelForImageClassification` model with `model_id`, `revision`, `top_k`; output `classifications` (label, score).
-- **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output `detections` (label, score, box xyxy).
+- **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output in `frame.data["meta"]` with `detections` (`{class, rois}` normalized), `detection_confidence`.
 - **Zero-shot detection**: OWL-ViT or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
 - **Standardized output**: JSON-serializable payload in `frame.data["meta"]` (detections, detection_confidence; classification adds `meta.classification`).
 - **Visualization**: Optional topic (e.g. `viz`) with bounding boxes/labels (detection) or top label + score (classification).
@@ -206,7 +206,18 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
 
 ## Output Structure
 
-**Object detection** (`frame.data["meta"]`):
+All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, `src`, `src_fps`) are preserved; the filter adds or updates:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `detections` | list | Each item: `{ "class": "<label>", "rois": [[xmin, ymin, xmax, ymax]] }` with coordinates normalized in [0, 1]. For image-classification, a single entry with `rois: [[0, 0, 1, 1]]` and the top class. |
+| `detection_confidence` | float | Mean of detection scores (or top-class score for image-classification). |
+| `detection_type` | string | Method used: `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, or `image-classification`. |
+| `task` | string | `object-detection`, `zero-shot-object-detection`, or `image-classification`. |
+| `model` | object | `{ "id": "<model_id>", "revision": "<revision>" }` (Hugging Face model). |
+| `classification` | object | **Image-classification only.** `{ "architecture": "huggingface", "classes": ["label1", ...], "confidences": [0.9, ...] }`. |
+
+**Object detection** example (`frame.data["meta"]`):
 
 ```json
 {
@@ -217,7 +228,10 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
   "detections": [
     { "class": "person", "rois": [[0.12, 0.19, 0.35, 0.46]] }
   ],
-  "detection_confidence": 0.95
+  "detection_confidence": 0.95,
+  "detection_type": "closed-vocabulary",
+  "task": "object-detection",
+  "model": { "id": "PekingU/rtdetr_r50vd", "revision": "main" }
 }
 ```
 
@@ -233,6 +247,9 @@ When `draw_visualization=True`, the filter publishes an additional frame on the 
     { "class": "tabby cat", "rois": [[0.0, 0.0, 1.0, 1.0]] }
   ],
   "detection_confidence": 0.42,
+  "detection_type": "image-classification",
+  "task": "image-classification",
+  "model": { "id": "facebook/convnext-tiny-224", "revision": "main" },
   "classification": {
     "architecture": "huggingface",
     "classes": ["tabby cat", "Egyptian cat"],
