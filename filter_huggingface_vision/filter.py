@@ -452,10 +452,7 @@ class FilterHuggingfaceVision(Filter):
                     main_frame_payload.get("image", {}).get("height"),
                 )
                 _dt = main_frame_payload.get("detection_type")
-                if _dt is None and main_frame_payload.get("classifications"):
-                    _dt = "image-classification"
-                elif _dt is None:
-                    _dt = "closed-vocabulary"
+                assert _dt is not None, "payload must include detection_type (set by classification or detection branch)"
                 viz_meta["meta"]["detection_type"] = _dt
                 viz_meta["meta"]["task"] = main_frame_payload.get("task", "object-detection")
                 viz_meta["meta"]["model"] = main_frame_payload.get("model", {"id": "", "revision": ""})
