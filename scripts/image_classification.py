@@ -28,7 +28,9 @@ Example .env:
     PORT=8010
 
 Output:
-    frame.data["meta"] with detections, detection_confidence, classification (architecture, classes, confidences). Upstream meta preserved.
+    frame.data["meta"] with detection_type, task, model, and classification
+    (classes, confidences, architecture, timestamp, filter_id, model_id, revision, top_k).
+    No detections nor detection_confidence for image-classification. Upstream meta preserved.
 """
 
 import os
