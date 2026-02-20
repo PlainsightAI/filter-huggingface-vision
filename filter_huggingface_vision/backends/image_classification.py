@@ -15,9 +15,11 @@ def _logits_to_classifications(logits, id2label, top_k):
 
     if logits is None or id2label is None:
         return []
+    if logits.dim() != 2 or logits.shape[0] == 0:
+        return []
     # Caller passes outputs.logits shape (1, num_classes); take first batch item
     logits_1d = logits[0]
-    if logits_1d.dim() != 1 or logits_1d.numel() == 0:
+    if logits_1d.numel() == 0:
         return []
     probs = torch.softmax(logits_1d, dim=-1)
     k = min(int(top_k), probs.numel())
