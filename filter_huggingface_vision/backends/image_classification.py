@@ -47,14 +47,13 @@ class ImageClassificationBackend(VisionBackend):
         revision = (get_config_value(config, "revision") or "").strip() or None
         if not revision:
             raise ValueError("revision is required and must be non-empty.")
-        trust_remote_code = get_config_value(config, "trust_remote_code", False)
-
+        # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
         try:
             self._processor = AutoImageProcessor.from_pretrained(
-                model_id, revision=revision, trust_remote_code=trust_remote_code
+                model_id, revision=revision, trust_remote_code=False
             )
             self._model = AutoModelForImageClassification.from_pretrained(
-                model_id, revision=revision, trust_remote_code=trust_remote_code
+                model_id, revision=revision, trust_remote_code=False
             )
         except Exception as e:
             raise RuntimeError(
