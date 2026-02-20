@@ -61,13 +61,12 @@ The filter returns processed frames with the following data structure:
 **Main Frame Data:**
 - Original frame data preserved (existing `meta` keys such as `id`, `ts`, `src`, `src_fps` are kept).
 - Processing results added to `frame.data["meta"]`:
-  - **detections**: list of `{ class, rois }` with `rois` normalized [0,1] as `[[xmin, ymin, xmax, ymax]]`.
-  - **detection_confidence**: mean score (or top score for image-classification).
-  - **classification** (image-classification only): `{ architecture: "huggingface", classes: [...], confidences: [...] }`.
+  - **Object detection:** `detections` (list of `{ class, rois }` normalized [0,1]), `detection_confidence`, `detection_type`, `task`, `model`.
+  - **Image classification:** no `detections` nor `detection_confidence`. Only `classification`: `{ classes, confidences, architecture, timestamp, filter_id, model_id, revision, top_k }`, plus `detection_type`, `task`, `model`.
 
 **Visualization Topic (when `draw_visualization=True`):**
 - A separate frame is published on the configured topic (e.g. `viz`).
-- Image has bounding boxes and labels drawn; `frame.data["meta"]` preserves upstream meta and includes `detections`, `detection_confidence`, and (for classification) `classification`.
+- Image has bounding boxes and labels drawn; `frame.data["meta"]` preserves upstream meta and includes either detection fields or `classification` (same shape as main).
 
 ## Installation
 
@@ -215,7 +214,7 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 | `detection_type` | string | Method used: `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, or `image-classification`. |
 | `task` | string | `object-detection`, `zero-shot-object-detection`, or `image-classification`. |
 | `model` | object | `{ "id": "<model_id>", "revision": "<revision>" }` (Hugging Face model). |
-| `classification` | object | **Image-classification only.** `{ "architecture": "huggingface", "classes": ["label1", ...], "confidences": [0.9, ...] }`. |
+| `classification` | object | **Image-classification only.** `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`. No `detections` nor `detection_confidence` for classification. |
 
 **Object detection** example (`frame.data["meta"]`):
 
@@ -243,17 +242,18 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
   "ts": 1761090922.42,
   "src": "file:///path/to/video.mp4",
   "src_fps": 25.0,
-  "detections": [
-    { "class": "tabby cat", "rois": [[0.0, 0.0, 1.0, 1.0]] }
-  ],
-  "detection_confidence": 0.42,
   "detection_type": "image-classification",
   "task": "image-classification",
   "model": { "id": "facebook/convnext-tiny-224", "revision": "main" },
   "classification": {
-    "architecture": "huggingface",
     "classes": ["tabby cat", "Egyptian cat"],
-    "confidences": [0.42, 0.31]
+    "confidences": [0.42, 0.31],
+    "architecture": "huggingface",
+    "timestamp": 1761090922.42,
+    "filter_id": "filter_huggingface_vision",
+    "model_id": "facebook/convnext-tiny-224",
+    "revision": "main",
+    "top_k": 5
   }
 }
 ```

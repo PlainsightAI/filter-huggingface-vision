@@ -129,16 +129,18 @@ class TestImageClassificationFilter(unittest.TestCase):
         self.assertIn("main", out)
         self.assertIn("meta", frame.data)
         meta = frame.data["meta"]
-        self.assertIn("detections", meta)
-        self.assertIn("detection_confidence", meta)
+        self.assertNotIn("detections", meta)
+        self.assertNotIn("detection_confidence", meta)
         self.assertIn("classification", meta)
-        self.assertEqual(len(meta["detections"]), 1)
-        self.assertEqual(meta["detections"][0]["class"], "tabby_cat")
-        self.assertEqual(meta["detections"][0]["rois"], [[0.0, 0.0, 1.0, 1.0]])
-        self.assertEqual(meta["detection_confidence"], 0.92)
-        self.assertEqual(meta["classification"]["architecture"], "huggingface")
-        self.assertEqual(meta["classification"]["classes"], ["tabby_cat", "Egyptian_cat"])
-        self.assertEqual(meta["classification"]["confidences"], [0.92, 0.05])
+        cl = meta["classification"]
+        self.assertEqual(cl["architecture"], "huggingface")
+        self.assertEqual(cl["classes"], ["tabby_cat", "Egyptian_cat"])
+        self.assertEqual(cl["confidences"], [0.92, 0.05])
+        self.assertIn("timestamp", cl)
+        self.assertEqual(cl["filter_id"], "test")
+        self.assertEqual(cl["model_id"], "google/vit-base-patch16-224")
+        self.assertEqual(cl["revision"], "main")
+        self.assertEqual(cl["top_k"], 5)
 
 
 class TestImageClassificationConfig(unittest.TestCase):

@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+import time
 from openfilter.filter_runtime.filter import FilterConfig, Filter, Frame
 
 from filter_huggingface_vision.backends import get_backend
@@ -69,8 +70,8 @@ def _image_from_frame(frame, input_topic):
 def _payload_to_meta_format(payload, width, height):
     """Convert backend payload to meta format.
     Returns (detections_meta, detection_confidence, classification_meta).
-    - detections: list of {class, rois} with rois normalized [0,1].
-    - classification_meta: for image-classification only, {architecture, classes, confidences}; else None.
+    - detections: list of {class, rois} with rois normalized [0,1]. Empty for image-classification.
+    - classification_meta: for image-classification only, {classes, confidences, architecture}; else None.
     """
     detections_meta = []
     confidence = 0.0
@@ -92,12 +93,6 @@ def _payload_to_meta_format(payload, width, height):
     elif payload.get("classifications"):
         cls_list = payload["classifications"]
         if cls_list:
-            top = cls_list[0]
-            detections_meta.append({
-                "class": top.get("label", ""),
-                "rois": [[0.0, 0.0, 1.0, 1.0]],
-            })
-            confidence = top.get("score", 0.0)
             classification_meta = {
                 "architecture": "huggingface",
                 "classes": [c.get("label", "") for c in cls_list],
@@ -396,19 +391,28 @@ class FilterHuggingfaceVision(Filter):
                 }
             if not hasattr(frame, "data"):
                 frame.data = {}
-            # Meta format: detections, detection_confidence, method info (detection_type, task, model)
+            # Meta format: for detection -> detections, detection_confidence; for classification -> classification only (no detections)
             if "meta" not in frame.data:
                 frame.data["meta"] = {}
             detections_meta, confidence, classification_meta = _payload_to_meta_format(
                 payload, width, height
             )
-            frame.data["meta"]["detections"] = detections_meta
-            frame.data["meta"]["detection_confidence"] = confidence
             frame.data["meta"]["detection_type"] = _detection_type
             frame.data["meta"]["task"] = _task
             frame.data["meta"]["model"] = {"id": model_id, "revision": self._revision}
             if classification_meta is not None:
-                frame.data["meta"]["classification"] = classification_meta
+                # Image-classification: only classification (Protege-like), no detections
+                frame.data["meta"]["classification"] = {
+                    **classification_meta,
+                    "timestamp": frame.data["meta"].get("ts", time.time()),
+                    "filter_id": getattr(config, "id", "filter_huggingface_vision"),
+                    "model_id": model_id,
+                    "revision": self._revision,
+                    "top_k": getattr(config, "top_k", 5),
+                }
+            else:
+                frame.data["meta"]["detections"] = detections_meta
+                frame.data["meta"]["detection_confidence"] = confidence
 
             if main_frame_payload is None:
                 main_frame_payload = payload
@@ -438,7 +442,7 @@ class FilterHuggingfaceVision(Filter):
                 image_bgr = main_frame_for_viz.rw_bgr.image
             if image_bgr is not None:
                 vis_image = _create_visualization(image_bgr, main_frame_payload)
-                # Preserve upstream meta (id, ts, src, src_fps), add detections + detection_confidence
+                # Preserve upstream meta; add detection or classification output
                 incoming_data = getattr(main_frame_for_viz, "data", None) or {}
                 viz_meta = {"meta": copy.deepcopy(incoming_data.get("meta", {}))}
                 detections_meta, confidence, classification_meta = _payload_to_meta_format(
@@ -446,8 +450,6 @@ class FilterHuggingfaceVision(Filter):
                     main_frame_payload.get("image", {}).get("width"),
                     main_frame_payload.get("image", {}).get("height"),
                 )
-                viz_meta["meta"]["detections"] = detections_meta
-                viz_meta["meta"]["detection_confidence"] = confidence
                 _dt = main_frame_payload.get("detection_type")
                 if _dt is None and main_frame_payload.get("classifications"):
                     _dt = "image-classification"
@@ -457,7 +459,17 @@ class FilterHuggingfaceVision(Filter):
                 viz_meta["meta"]["task"] = main_frame_payload.get("task", "object-detection")
                 viz_meta["meta"]["model"] = main_frame_payload.get("model", {"id": "", "revision": ""})
                 if classification_meta is not None:
-                    viz_meta["meta"]["classification"] = classification_meta
+                    viz_meta["meta"]["classification"] = {
+                        **classification_meta,
+                        "timestamp": viz_meta["meta"].get("ts", time.time()),
+                        "filter_id": getattr(config, "id", "filter_huggingface_vision"),
+                        "model_id": main_frame_payload.get("model", {}).get("id", ""),
+                        "revision": main_frame_payload.get("model", {}).get("revision", ""),
+                        "top_k": getattr(config, "top_k", 5),
+                    }
+                else:
+                    viz_meta["meta"]["detections"] = detections_meta
+                    viz_meta["meta"]["detection_confidence"] = confidence
                 frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
 
         return frames

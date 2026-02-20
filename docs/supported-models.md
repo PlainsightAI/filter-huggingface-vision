@@ -11,11 +11,10 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 | `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
 
-**Output format:** All results are written to `frame.data["meta"]`. Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved. The filter adds:
+**Output format:** All results are written to `frame.data["meta"]`. Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved.
 
-- **`detections`**: list of `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates in [0, 1].
-- **`detection_confidence`**: float (mean of scores, or top score for image-classification).
-- **`classification`** (image-classification only): `{ "architecture": "huggingface", "classes": [...], "confidences": [...] }`.
+- **Object detection:** `detections`, `detection_confidence`, `detection_type`, `task`, `model`.
+- **Image classification:** no `detections` nor `detection_confidence`. Only `classification`: `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`, plus `detection_type`, `task`, `model`.
 
 ## Pipelines
 
@@ -64,21 +63,29 @@ FilterHuggingfaceVisionConfig(
 
 ### Output (image-classification)
 
-`frame.data["meta"]` includes `detections` (one entry with top class and `rois: [[0,0,1,1]]`), `detection_confidence`, and `classification`:
+`frame.data["meta"]` has no `detections` nor `detection_confidence`. It includes `classification` (Protege-like) and method info:
 
 ```json
 {
-  "detections": [{ "class": "tabby cat", "rois": [[0.0, 0.0, 1.0, 1.0]] }],
-  "detection_confidence": 0.42,
+  "id": 38,
+  "ts": 1761090922.42,
+  "src": "file:///path/to/video.mp4",
+  "src_fps": 25.0,
+  "detection_type": "image-classification",
+  "task": "image-classification",
+  "model": { "id": "facebook/convnext-tiny-224", "revision": "main" },
   "classification": {
-    "architecture": "huggingface",
     "classes": ["tabby cat", "Egyptian cat"],
-    "confidences": [0.42, 0.31]
+    "confidences": [0.42, 0.31],
+    "architecture": "huggingface",
+    "timestamp": 1761090922.42,
+    "filter_id": "filter_huggingface_vision",
+    "model_id": "facebook/convnext-tiny-224",
+    "revision": "main",
+    "top_k": 5
   }
 }
 ```
-
-(Upstream keys `id`, `ts`, `src`, `src_fps` are preserved.)
 
 ---
 

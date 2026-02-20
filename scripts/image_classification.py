@@ -89,7 +89,7 @@ if __name__ == "__main__":
             (
                 VideoIn,
                 dict(
-                    sources=f"file://{video_path}!loop",
+                    sources=f"file://{video_path}!sync",
                     outputs="tcp://*:5550",
                 ),
             ),
