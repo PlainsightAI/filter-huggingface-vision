@@ -28,7 +28,7 @@ Full list and config examples: [docs/supported-models.md](docs/supported-models.
 | **Open-vocabulary** (OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (Grounding DINO) | `open-vocabulary-grounding` | `scripts/grounding_dino.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 
-Output is written to `frame.data["meta"]` (see [Output Structure](#output-structure)): `detections` (list of `{class, rois}` with normalized coords), `detection_confidence`; image classification also adds `classification` (`architecture`, `classes`, `confidences`).
+Output is written to `frame.data["meta"]` (see [Output Structure](#output-structure)): for **object detection** (closed-vocabulary, open-vocabulary, open-vocabulary-grounding), `detections` (list of `{class, rois}` with normalized coords) and `detection_confidence`; for **image classification**, only `detection_type`, `task`, `model`, and `classification` (no `detections` or `detection_confidence`).
 
 ## Features
 
@@ -37,7 +37,7 @@ Output is written to `frame.data["meta"]` (see [Output Structure](#output-struct
 - **Image classification**: Run ViT, ConvNeXt, or any `AutoModelForImageClassification` model with `model_id`, `revision`, `top_k`; output `classifications` (label, score).
 - **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output in `frame.data["meta"]` with `detections` (`{class, rois}` normalized), `detection_confidence`.
 - **Zero-shot detection**: OWL-ViT or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
-- **Standardized output**: JSON-serializable payload in `frame.data["meta"]` (detections, detection_confidence; classification adds `meta.classification`).
+- **Standardized output**: JSON-serializable payload in `frame.data["meta"]`: object detection writes `detections`, `detection_confidence`; image classification writes only `detection_type`, `task`, `model`, and `classification` (no detections or detection_confidence).
 - **Visualization**: Optional topic (e.g. `viz`) with bounding boxes/labels (detection) or top label + score (classification).
 - **Frame input**: OpenFilter convention (`frame.rw_bgr.image`); fallback to `frame.data[topic]`.
 - **Device selection**: CPU or CUDA. **Model compatibility**: Works with dict and object outputs from processors (e.g. RT-DETR, DETR).
@@ -133,7 +133,7 @@ Run image classification with a ViT, ConvNeXt, or any `AutoModelForImageClassifi
 python scripts/image_classification.py
 ```
 
-Output: `frame.data["meta"]` with `detections`, `detection_confidence`, and `classification` (`architecture`, `classes`, `confidences`). Visualization shows the top label + score on the image.
+Output: `frame.data["meta"]` with `detection_type`, `task`, `model`, and `classification` (`architecture`, `classes`, `confidences`, etc.). No `detections` or `detection_confidence` for classification. Visualization shows the top label + score on the image.
 
 ### Closed-vocabulary (object detection pipeline)
 
@@ -209,12 +209,12 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `detections` | list | Each item: `{ "class": "<label>", "rois": [[xmin, ymin, xmax, ymax]] }` with coordinates normalized in [0, 1]. For image-classification, a single entry with `rois: [[0, 0, 1, 1]]` and the top class. |
-| `detection_confidence` | float | Mean of detection scores (or top-class score for image-classification). |
+| `detections` | list | **Object detection only.** Each item: `{ "class": "<label>", "rois": [[xmin, ymin, xmax, ymax]] }` with coordinates normalized in [0, 1]. Not set for image-classification. |
+| `detection_confidence` | float | **Object detection only.** Mean of detection scores. Not set for image-classification. |
 | `detection_type` | string | Method used: `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, or `image-classification`. |
 | `task` | string | `object-detection`, `zero-shot-object-detection`, or `image-classification`. |
 | `model` | object | `{ "id": "<model_id>", "revision": "<revision>" }` (Hugging Face model). |
-| `classification` | object | **Image-classification only.** `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`. No `detections` nor `detection_confidence` for classification. |
+| `classification` | object | **Image-classification only.** `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`. Classification output has no `detections` nor `detection_confidence`. |
 
 **Object detection** example (`frame.data["meta"]`):
 

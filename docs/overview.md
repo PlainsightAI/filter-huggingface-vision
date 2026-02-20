@@ -23,7 +23,7 @@ The content of this document will be published to production documentation on ev
 
 - **Image classification**
   - Load and run Hugging Face image classification models (e.g. ViT, ConvNeXt) via `detection_type="image-classification"`.
-  - Configurable `model_id`, `revision` (required), `top_k`, `device`. Output in `frame.data["meta"]` with `detections`, `detection_confidence`, and `classification` (`architecture`, `classes`, `confidences`).
+  - Configurable `model_id`, `revision` (required), `top_k`, `device`. Output in `frame.data["meta"]` with `detection_type`, `task`, `model`, and `classification` (`architecture`, `classes`, `confidences`). No `detections` or `detection_confidence` for classification.
 
 - **Visualization**
   - Optional topic (e.g. `viz`) with bounding boxes and labels (object detection) or top label + score (image classification), same pattern as the Protege filter.
