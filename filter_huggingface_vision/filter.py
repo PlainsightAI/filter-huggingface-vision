@@ -369,6 +369,7 @@ class FilterHuggingfaceVision(Filter):
                 _task = "image-classification"
                 _detection_type = "image-classification"
                 payload = {
+                    "detection_type": _detection_type,
                     "task": _task,
                     "model": {"id": model_id, "revision": self._revision},
                     "image": {"width": width, "height": height},
