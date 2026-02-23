@@ -1,12 +1,27 @@
 # Supported models by detection type
 
-The filter supports multiple detection variants via backends; each uses a different processor/model API. Output format is the same: `frame.data["subjects"]["huggingface_vision"]` with `detection_type`, `model`, `image`, and `detections` (label, score, box xyxy). Config uses `detection_type`: `"closed-vocabulary"`, `"open-vocabulary"`, or `"open-vocabulary-grounding"`.
+The filter supports a fixed set of **Hugging Face APIs**. Each API is identified by a processor + model class pair and corresponds to one `detection_type`. **Each API supports all models on the Hugging Face Hub that are compatible with that API**—any model that can be loaded with the same processor and model classes will work. Below we list each supported API and **example model IDs** (tested or commonly used); the Hub may list additional compatible models for each API.
+
+## Supported APIs (summary)
+
+| HF API (processor + model) | `detection_type` | Example model IDs |
+|----------------------------|------------------|-------------------|
+| `AutoImageProcessor` + `AutoModelForImageClassification` | `image-classification` | `google/vit-base-patch16-224`, `facebook/convnext-tiny-224` |
+| `AutoImageProcessor` + `AutoModelForObjectDetection` | `closed-vocabulary` | `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50` |
+| `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
+| `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
+
+**Output format:** All results are written to `frame.data["meta"]`. Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved.
+
+- **Object detection:** `detections`, `detection_confidence`, `detection_type`, `task`, `model`.
+- **Image classification:** no `detections` nor `detection_confidence`. Only `classification`: `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`, plus `detection_type`, `task`, `model`.
 
 ## Pipelines
 
 | Script | Detection type | Model source |
 |--------|----------------|--------------|
 | `scripts/object_detection.py` | Closed-vocabulary (DETR / RT-DETR) | `MODEL_ID` + `REVISION` from .env |
+| `scripts/image_classification.py` | Image classification (ViT / ConvNeXt) | `MODEL_ID` + `REVISION` from .env |
 | `scripts/zero_shot_object_detection.py` | Open-vocabulary (OWL-ViT) | Fixed in code: `google/owlvit-base-patch32` @ main |
 | `scripts/grounding_dino.py` | Open-vocabulary (Grounding DINO) | Fixed in code: MM Grounding DINO tiny @ main |
 
@@ -14,10 +29,72 @@ The zero-shot and Grounding DINO scripts use a fixed model in code so the same .
 
 ---
 
+## Image classification (ViT / ConvNeXt)
+
+**API:** `AutoImageProcessor` + `AutoModelForImageClassification`. Any model on the Hub that loads with this API is supported. Assigns one or more class labels to an image (e.g. ImageNet classes). No `text_labels` required; optional `top_k` (default 5) controls how many top classes to return.
+
+**Example model IDs:**
+
+| MODEL_ID | REVISION |
+|----------|----------|
+| google/vit-base-patch16-224 | main |
+| facebook/convnext-tiny-224 | main |
+
+### Example .env (image classification pipeline)
+
+```bash
+MODEL_ID=google/vit-base-patch16-224
+REVISION=main
+VIDEO_PATH=./filter_example_video.mp4
+TOP_K=5
+PORT=8010
+```
+
+### Example config (image-classification, in code)
+
+```python
+FilterHuggingfaceVisionConfig(
+    detection_type="image-classification",
+    model_id="google/vit-base-patch16-224",
+    revision="main",
+    top_k=5,
+)
+```
+
+### Output (image-classification)
+
+`frame.data["meta"]` has no `detections` nor `detection_confidence`. It includes `classification` (Protege-like) and method info:
+
+```json
+{
+  "id": 38,
+  "ts": 1761090922.42,
+  "src": "file:///path/to/video.mp4",
+  "src_fps": 25.0,
+  "detection_type": "image-classification",
+  "task": "image-classification",
+  "model": { "id": "facebook/convnext-tiny-224", "revision": "main" },
+  "classification": {
+    "classes": ["tabby cat", "Egyptian cat"],
+    "confidences": [0.42, 0.31],
+    "architecture": "huggingface",
+    "timestamp": 1761090922.42,
+    "filter_id": "filter_huggingface_vision",
+    "model_id": "facebook/convnext-tiny-224",
+    "revision": "main",
+    "top_k": 5
+  }
+}
+```
+
+---
+
 ## Closed-vocabulary object detection (DETR / RT-DETR)
 
-Fixed set of classes (e.g. COCO). Backend: `AutoImageProcessor` + `AutoModelForObjectDetection` (DETR, RT-DETR, Conditional DETR).  
+**API:** `AutoImageProcessor` + `AutoModelForObjectDetection`. Any model on the Hub that loads with this API is supported (e.g. DETR, RT-DETR, Conditional DETR). Fixed set of classes (e.g. COCO).  
 **Dependency:** `timm` (for DETR/Conditional DETR backbones).
+
+**Example model IDs:**
 
 | MODEL_ID | REVISION |
 |----------|----------|
@@ -39,8 +116,10 @@ VIDEO_PATH=./filter_example_video.mp4
 
 ## Open-vocabulary object detection (OWL-ViT)
 
-Text queries at inference; no fixed class set. Backend: `OwlViTProcessor` + `OwlViTForObjectDetection`.  
+**API:** `OwlViTProcessor` + `OwlViTForObjectDetection`. Models that load with this API are supported. Text queries at inference; no fixed class set.  
 **Dependency:** `sentencepiece` (for OWL-ViT tokenizer).
+
+**Example model IDs:**
 
 | MODEL_ID | REVISION |
 |----------|----------|
@@ -73,7 +152,9 @@ PORT=8010
 
 ## Open-vocabulary object detection (Grounding DINO)
 
-Open-vocabulary detection with text queries. Backend: `AutoProcessor` + `AutoModelForZeroShotObjectDetection` (Grounding DINO / MM Grounding DINO). **Dependency:** `timm` (for Swin backbone).
+**API:** `AutoProcessor` + `AutoModelForZeroShotObjectDetection`. Any model on the Hub that loads with this API is supported (Grounding DINO, MM Grounding DINO). Open-vocabulary detection with text queries. **Dependency:** `timm` (for Swin backbone).
+
+**Example model IDs:**
 
 | MODEL_ID | REVISION |
 |----------|----------|

@@ -1,5 +1,7 @@
+import copy
 import logging
 import os
+import time
 from openfilter.filter_runtime.filter import FilterConfig, Filter, Frame
 
 from filter_huggingface_vision.backends import get_backend
@@ -65,8 +67,68 @@ def _image_from_frame(frame, input_topic):
     return None, 0, 0
 
 
+def _payload_to_meta_format(payload, width, height):
+    """Convert backend payload to meta format.
+    Returns (detections_meta, detection_confidence, classification_meta).
+    - detections: list of {class, rois} with rois normalized [0,1]. Empty for image-classification.
+    - classification_meta: for image-classification only, {classes, confidences, architecture}; else None.
+    """
+    detections_meta = []
+    confidence = 0.0
+    classification_meta = None
+    w, h = width or 1, height or 1
+    if payload.get("detections"):
+        scores = []
+        for d in payload["detections"]:
+            label = d.get("label", "")
+            box = d.get("box", {})
+            xmin = box.get("xmin", 0) / w
+            ymin = box.get("ymin", 0) / h
+            xmax = box.get("xmax", 0) / w
+            ymax = box.get("ymax", 0) / h
+            detections_meta.append({"class": label, "rois": [[xmin, ymin, xmax, ymax]]})
+            scores.append(d.get("score", 0.0))
+        if scores:
+            confidence = sum(scores) / len(scores)
+    elif payload.get("classifications"):
+        cls_list = payload["classifications"]
+        if cls_list:
+            classification_meta = {
+                "architecture": "huggingface",
+                "classes": [c.get("label", "") for c in cls_list],
+                "confidences": [float(c.get("score", 0.0)) for c in cls_list],
+            }
+    return detections_meta, confidence, classification_meta
+
+
+def _apply_meta(meta_dict, payload, config):
+    """Populate meta_dict with detection_type, task, model, and either classification or detections/detection_confidence from payload."""
+    width = payload.get("image", {}).get("width")
+    height = payload.get("image", {}).get("height")
+    detections_meta, confidence, classification_meta = _payload_to_meta_format(
+        payload, width, height
+    )
+    _dt = payload.get("detection_type")
+    assert _dt is not None, "payload must include detection_type (set by classification or detection branch)"
+    meta_dict["detection_type"] = _dt
+    meta_dict["task"] = payload.get("task", "object-detection")
+    meta_dict["model"] = payload.get("model", {"id": "", "revision": ""})
+    if classification_meta is not None:
+        meta_dict["classification"] = {
+            **classification_meta,
+            "timestamp": meta_dict.get("ts", time.time()),
+            "filter_id": getattr(config, "id", "filter_huggingface_vision"),
+            "model_id": payload.get("model", {}).get("id", ""),
+            "revision": payload.get("model", {}).get("revision", ""),
+            "top_k": getattr(config, "top_k", 5),
+        }
+    else:
+        meta_dict["detections"] = detections_meta
+        meta_dict["detection_confidence"] = confidence
+
+
 def _create_visualization(image_bgr, payload):
-    """Draw detection boxes and labels on a BGR image. Returns BGR numpy array."""
+    """Draw detection boxes and labels, or (for classification) top label + score as text. Returns BGR numpy array."""
     try:
         import cv2
         import numpy as np
@@ -74,6 +136,23 @@ def _create_visualization(image_bgr, payload):
         return image_bgr.copy() if image_bgr is not None else None
 
     vis_image = image_bgr.copy()
+    classifications = payload.get("classifications", [])
+    if classifications:
+        top = classifications[0]
+        label = top.get("label", "")
+        score = top.get("score", 0.0)
+        text = f"{label} {score:.2f}"
+        cv2.putText(
+            vis_image,
+            text,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2,
+        )
+        return vis_image
+
     detections = payload.get("detections", [])
     for d in detections:
         label = d.get("label", "")
@@ -119,11 +198,12 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Model/config
     model_id: str = None
     revision: str = None
-    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary"
+    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary" | "image-classification"
     threshold: float = 0.3
     device: str = "cpu"
     trust_remote_code: bool = False
     max_detections: int = 100
+    top_k: int = 5  # for image-classification: number of top classes to return
     input_topic: str = "main"
     output_topic: str = "main"
     # Zero-shot (OWL-ViT, Grounding DINO): one list of query strings per image.
@@ -144,17 +224,15 @@ class FilterHuggingfaceVision(Filter):
     The filter returns processed frames with the following data structure:
 
     Frame data:
-    - Original frame data preserved
-    - Processing results added to frame.data["subjects"]["huggingface_vision"]:
-
-      - detection_type: "closed-vocabulary" | "open-vocabulary" (task kept for backward compat)
-      - model: { id, revision }
-      - image: { width, height }
-      - detections: list of { label, score, box: { format, xmin, ymin, xmax, ymax } }
+    - Original frame data preserved (existing meta keys such as id, ts, src, src_fps are kept).
+    - Processing results added to frame.data["meta"]:
+      - detections: list of { class, rois } with rois normalized [0,1] as [[xmin, ymin, xmax, ymax]]
+      - detection_confidence: mean score (or top score for image-classification)
+      - classification (image-classification only): { architecture: "huggingface", classes: [...], confidences: [...] }
 
     Visualization Frame (topic: "viz" when draw_visualization=True):
     - Image with bounding boxes and labels drawn
-    - frame.data["meta"]: detections, detection_confidence
+    - frame.data["meta"]: upstream meta preserved, plus detections and detection_confidence (same format)
     - When multiple frames are processed, the viz topic uses the first frame's image and detections (same as filter-protege-model).
 
     Key Features:
@@ -203,6 +281,9 @@ class FilterHuggingfaceVision(Filter):
             max_detections=get_config_value(config, "max_detections", 100)
             if get_config_value(config, "max_detections") is not None
             else get_config_value(base, "max_detections", 100),
+            top_k=get_config_value(config, "top_k", 5)
+            if get_config_value(config, "top_k") is not None
+            else get_config_value(base, "top_k", 5),
             input_topic=get_config_value(config, "input_topic", "main")
             or get_config_value(base, "input_topic", "main"),
             output_topic=get_config_value(config, "output_topic", "main")
@@ -217,12 +298,20 @@ class FilterHuggingfaceVision(Filter):
                 "revision is required and must be non-empty (reproducibility)."
             )
 
-        t = getattr(config, "threshold", 0.3)
-        if not isinstance(t, (int, float)) or t < 0 or t > 1:
-            raise ValueError("threshold must be a number in [0, 1].")
-
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
+
+        if detection_type != "image-classification":
+            t = getattr(config, "threshold", 0.3)
+            if not isinstance(t, (int, float)) or t < 0 or t > 1:
+                raise ValueError("threshold must be a number in [0, 1].")
+
+        if detection_type == "image-classification":
+            tk = getattr(config, "top_k", 5)
+            if not isinstance(tk, int) or tk < 1 or tk > 1000:
+                raise ValueError(
+                    "top_k must be an integer in [1, 1000] when detection_type is image-classification."
+                )
 
         if (
             detection_type == "open-vocabulary"
@@ -301,25 +390,38 @@ class FilterHuggingfaceVision(Filter):
             if image is None:
                 continue
 
-            detections = self._backend.run(image, width, height, config)
-            # task: legacy key for backward compatibility (same values as before)
-            _task = (
-                "object-detection"
-                if detection_type == "closed-vocabulary"
-                else "zero-shot-object-detection"
-            )
-            payload = {
-                "detection_type": detection_type,
-                "task": _task,
-                "model": {"id": model_id, "revision": self._revision},
-                "image": {"width": width, "height": height},
-                "detections": detections,
-            }
+            result = self._backend.run(image, width, height, config)
+            if isinstance(result, dict) and "classifications" in result:
+                _task = "image-classification"
+                _detection_type = "image-classification"
+                payload = {
+                    "detection_type": _detection_type,
+                    "task": _task,
+                    "model": {"id": model_id, "revision": self._revision},
+                    "image": {"width": width, "height": height},
+                    "classifications": result["classifications"],
+                }
+            else:
+                detections = result
+                _task = (
+                    "object-detection"
+                    if detection_type == "closed-vocabulary"
+                    else "zero-shot-object-detection"
+                )
+                _detection_type = detection_type
+                payload = {
+                    "detection_type": detection_type,
+                    "task": _task,
+                    "model": {"id": model_id, "revision": self._revision},
+                    "image": {"width": width, "height": height},
+                    "detections": detections,
+                }
             if not hasattr(frame, "data"):
                 frame.data = {}
-            if "subjects" not in frame.data:
-                frame.data["subjects"] = {}
-            frame.data["subjects"]["huggingface_vision"] = payload
+            # Meta format: for detection -> detections, detection_confidence; for classification -> classification only (no detections)
+            if "meta" not in frame.data:
+                frame.data["meta"] = {}
+            _apply_meta(frame.data["meta"], payload, config)
 
             if main_frame_payload is None:
                 main_frame_payload = payload
@@ -349,17 +451,10 @@ class FilterHuggingfaceVision(Filter):
                 image_bgr = main_frame_for_viz.rw_bgr.image
             if image_bgr is not None:
                 vis_image = _create_visualization(image_bgr, main_frame_payload)
-                viz_meta = {
-                    "meta": {
-                        "detections": main_frame_payload.get("detections", []),
-                        "detection_confidence": 0.0,
-                    }
-                }
-                if main_frame_payload.get("detections"):
-                    scores = [
-                        d.get("score", 0) for d in main_frame_payload["detections"]
-                    ]
-                    viz_meta["meta"]["detection_confidence"] = sum(scores) / len(scores)
+                # Preserve upstream meta; add detection or classification output
+                incoming_data = getattr(main_frame_for_viz, "data", None) or {}
+                viz_meta = {"meta": copy.deepcopy(incoming_data.get("meta", {}))}
+                _apply_meta(viz_meta["meta"], main_frame_payload, config)
                 frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
 
         return frames

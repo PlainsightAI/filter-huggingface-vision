@@ -4,7 +4,11 @@ from abc import ABC, abstractmethod
 
 
 class VisionBackend(ABC):
-    """Backend contract: load(config) and run(image_pil, width, height, config) -> list[detection]."""
+    """Backend contract: load(config) and run(image_pil, width, height, config).
+    run() may return either:
+    - A list of detections, each: { "label", "score", "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }
+    - A dict with key "classifications": list of { "label": str, "score": float } (image-classification backend).
+    """
 
     @abstractmethod
     def load(self, config):
@@ -15,9 +19,7 @@ class VisionBackend(ABC):
 
     @abstractmethod
     def run(self, image_pil, width, height, config):
-        """Run inference. Return list of detections, each:
-        { "label": str, "score": float, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }
-        """
+        """Run inference. Return list of detections (object detection) or dict with "classifications" (image classification)."""
         pass
 
     def shutdown(self):

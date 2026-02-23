@@ -1,34 +1,36 @@
 #!/usr/bin/env python
 
 """
-Object Detection Pipeline using FilterHuggingfaceVision.
+Image Classification Pipeline using FilterHuggingfaceVision.
 
 This script demonstrates a simple pipeline that:
 1. Reads input video
-2. Runs Hugging Face object detection on video frames (AutoImageProcessor + AutoModelForObjectDetection)
-3. Provides web-based visualization of detections
+2. Runs Hugging Face image classification on video frames (AutoImageProcessor + AutoModelForImageClassification)
+3. Provides web-based visualization (top label + score)
 
-Pipeline: VideoIn → FilterHuggingfaceVision (Object Detection) → Webvis
+Pipeline: VideoIn → FilterHuggingfaceVision (Image Classification) → Webvis
 
 Required environment variables (e.g. in .env):
-    MODEL_ID: Hugging Face model id (e.g. PekingU/rtdetr_r50vd)
+    MODEL_ID: Hugging Face model id (e.g. google/vit-base-patch16-224 or facebook/convnext-tiny-224)
     REVISION: Model revision (required for reproducibility)
     VIDEO_PATH: Path to the input video file
 
 Optional environment variables:
-    THRESHOLD: Detection confidence threshold in [0,1] (default: 0.3)
+    TOP_K: Number of top classes to return (default: 5)
     PORT: Webvis port (default: 8010)
-    DRAW_VISUALIZATION: If "true", add a "viz" topic with bounding boxes drawn (default: false)
+    DRAW_VISUALIZATION: If "true", add a "viz" topic with top label drawn (default: false)
 
 Example .env:
-    MODEL_ID=PekingU/rtdetr_r50vd
+    MODEL_ID=google/vit-base-patch16-224
     REVISION=main
     VIDEO_PATH=./filter_example_video.mp4
-    THRESHOLD=0.3
+    TOP_K=5
     PORT=8010
 
 Output:
-    frame.data["meta"] with detections ({class, rois} normalized), detection_confidence. Upstream meta preserved.
+    frame.data["meta"] with detection_type, task, model, and classification
+    (classes, confidences, architecture, timestamp, filter_id, model_id, revision, top_k).
+    No detections nor detection_confidence for image-classification. Upstream meta preserved.
 """
 
 import os
@@ -69,20 +71,20 @@ if __name__ == "__main__":
     revision = os.getenv("REVISION", "")
     if not model_id:
         raise ValueError(
-            "MODEL_ID environment variable is not set (e.g. PekingU/rtdetr_r50vd)."
+            "MODEL_ID environment variable is not set (e.g. google/vit-base-patch16-224)."
         )
     if not revision:
         raise ValueError(
             "REVISION environment variable is not set (required for reproducibility)."
         )
 
-    threshold = float(os.getenv("THRESHOLD", "0.3"))
+    top_k = int(os.getenv("TOP_K", "5"))
     port = int(os.getenv("PORT", "8010"))
 
-    print("Running Object Detection Pipeline (Hugging Face Vision)")
+    print("Running Image Classification Pipeline (Hugging Face Vision)")
     print(f"Video source: {video_path}")
     print(f"Model: {model_id} @ {revision}")
-    print("Pipeline: VideoIn → FilterHuggingfaceVision (Object Detection) → Webvis")
+    print("Pipeline: VideoIn → FilterHuggingfaceVision (Image Classification) → Webvis")
 
     Filter.run_multi(
         [
@@ -101,8 +103,8 @@ if __name__ == "__main__":
                     outputs="tcp://*:5552",
                     model_id=model_id,
                     revision=revision,
-                    detection_type="closed-vocabulary",
-                    threshold=threshold,
+                    detection_type="image-classification",
+                    top_k=top_k,
                     draw_visualization=True,
                     visualization_topic="viz",
                 ),

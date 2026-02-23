@@ -68,13 +68,12 @@ class OwlVitBackend(VisionBackend):
         self._device = resolve_device(get_config_value(config, "device", "cpu"))
         model_id = get_config_value(config, "model_id")
         revision = (get_config_value(config, "revision") or "").strip() or "main"
-        trust_remote_code = get_config_value(config, "trust_remote_code", False)
-
+        # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
         self._processor = OwlViTProcessor.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
+            model_id, revision=revision, trust_remote_code=False
         )
         self._model = OwlViTForObjectDetection.from_pretrained(
-            model_id, revision=revision, trust_remote_code=trust_remote_code
+            model_id, revision=revision, trust_remote_code=False
         )
         self._model = self._model.to(self._device)
         self._model.eval()

@@ -4,18 +4,18 @@ sidebar_label: Object detection
 sidebar_position: 2
 ---
 
-This document describes the **first Hugging Face object detection support** in the filter: running detection with `AutoImageProcessor` and `AutoModelForObjectDetection`, writing results into frame data, and optionally publishing a visualization topic.
+This document describes **closed-vocabulary object detection** in the filter. The filter supports several Hugging Face APIs; this one uses `AutoImageProcessor` + `AutoModelForObjectDetection`. **That API supports all models on the Hub compatible with it** (e.g. DETR, RT-DETR, Conditional DETR). See [Supported models](supported-models) for the full list of APIs and example model IDs.
 
 ## Overview
 
-- **Object detection**: Load and run Hugging Face object detection models (e.g. `PekingU/rtdetr_r50vd`) via `AutoImageProcessor` and `AutoModelForObjectDetection`.
+- **Object detection**: Load and run Hugging Face object detection models (e.g. `PekingU/rtdetr_r50vd`) via the `AutoImageProcessor` + `AutoModelForObjectDetection` API. Any model that loads with this API is supported.
 - **Config**: `model_id`, `revision` (required), `threshold`, `device`, `max_detections`; optional visualization options (`draw_visualization`, `visualization_topic`).
-- **Output**: Results are written to `frame.data["subjects"]["huggingface_vision"]` with `task`, `model`, `image`, and `detections` (label, score, box in xyxy format).
+- **Output**: Results are written to `frame.data["meta"]` with `detections` (list of `{class, rois}` with rois normalized [0,1]) and `detection_confidence`. Upstream meta is preserved.
 - **Visualization**: When `draw_visualization=True`, the filter publishes a second topic (e.g. `viz`) with bounding boxes and labels drawn on the image.
 
 ## Example pipeline
 
-The script `scripts/object_detection_pipeline.py` runs the pipeline **VideoIn → FilterHuggingfaceVision → Webvis**. It reads configuration from the environment (e.g. a `.env` file in the project root).
+The script `scripts/object_detection.py` runs the pipeline **VideoIn → FilterHuggingfaceVision → Webvis**. It reads configuration from the environment (e.g. a `.env` file in the project root).
 
 ### Example `.env`
 
@@ -31,7 +31,7 @@ THRESHOLD=0.3
 From the project root (`.env` is loaded from the project root regardless of cwd):
 
 ```bash
-python scripts/object_detection_pipeline.py
+python scripts/object_detection.py
 ```
 
 Web UI: **http://localhost:8010**.
@@ -48,13 +48,25 @@ Web UI: **http://localhost:8010**.
 
 ## Output format
 
-Each processed frame gets:
+Each processed frame has `frame.data["meta"]` updated. Upstream keys (`id`, `ts`, `src`, `src_fps`) are preserved. The filter adds:
 
-- **`frame.data["subjects"]["huggingface_vision"]`**:
-  - `task`: `"object-detection"`
-  - `model`: `{ "id": "<model_id>", "revision": "<revision>" }`
-  - `image`: `{ "width": <int>, "height": <int> }`
-  - `detections`: list of `{ "label": "<str>", "score": <float>, "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }`
+- **`detections`**: list of objects `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates normalized in [0, 1].
+- **`detection_confidence`**: float, mean of detection scores.
+
+Example (excerpt):
+
+```json
+{
+  "id": 38,
+  "ts": 1761090922.42,
+  "src": "file:///path/to/video.mp4",
+  "src_fps": 25.0,
+  "detections": [
+    { "class": "person", "rois": [[0.12, 0.19, 0.35, 0.46]] }
+  ],
+  "detection_confidence": 0.95
+}
+```
 
 ## Visualization topic
 
@@ -67,3 +79,7 @@ When `draw_visualization=True` (in filter config):
 ## Supported models
 
 The filter uses Hugging Face `AutoImageProcessor` and `AutoModelForObjectDetection`, so any model supported by that API works (e.g. RT-DETR, DETR). The output of `post_process_object_detection` is normalized to the same schema whether the processor returns dict-style (`result["scores"]`) or attribute-style (`result.scores`) results.
+
+## See also
+
+- [Supported models — Image classification](supported-models#image-classification-vit--convnext) — ViT and ConvNeXt models for image classification (`detection_type="image-classification"`).
