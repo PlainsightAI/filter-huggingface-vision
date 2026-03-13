@@ -1,22 +1,39 @@
-ARG RESOURCE_BUNDLE_VERSION=latest
-# If Exported to Plainsight Prod from protege
-# From us-west1-docker.pkg.dev/plainsightai-prod/oci/filter-huggingface-vision-model:${RESOURCE_BUNDLE_VERSION} as model
-# If Exported to Planisight Dev from protege
-# From us-central1-docker.pkg.dev/plainsightai-dev/oci/filter-huggingface-vision-model:${RESOURCE_BUNDLE_VERSION} as model
-FROM us-west1-docker.pkg.dev/plainsightai-prod/oci/filter_base:python-3.11
+# syntax=docker/dockerfile:1.4
+FROM python:3.13-slim AS builder
 
-# Copy both models and entrypoint script from the model image
-# COPY --from=model /app/models /app/models
-# COPY --from=model /app/entrypoint.sh /app/entrypoint.sh
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Transformers cache to be deprecated and HF_HOME to be used soon... 
-# ENV TRANSFORMERS_CACHE=/app/models/hfcache 
-# ENV HF_HOME=/app/models/hfcache
+RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
+    set -eux; \
+    RAW="$(head -n1 /tmp/VERSION)"; \
+    PKG_VERSION="$(printf '%s' "$RAW" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
+    [ -n "$PKG_VERSION" ] || { echo "VERSION file is empty"; exit 1; }; \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir \
+    --index-url https://python.openfilter.io/simple \
+    --extra-index-url https://pypi.org/simple \
+    "filter-huggingface-vision==${PKG_VERSION}"
 
-# Make the entrypoint script executable
-# RUN chmod +x /app/entrypoint.sh
+FROM python:3.13-slim
 
-# Use entrypoint to set up model symlinks, then run the filter
-# ENTRYPOINT ["/app/entrypoint.sh"]
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxcb1 libxcb-shm0 libxcb-render0 libx11-6 libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -ms /bin/bash appuser
+WORKDIR /app
+
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app
+
+USER appuser
+
+COPY --from=builder /usr/local /usr/local
 
 CMD ["python", "-m", "filter_huggingface_vision.filter"]

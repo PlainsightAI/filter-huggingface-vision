@@ -277,14 +277,12 @@ filter-huggingface-vision/
 │   ├── object-detection.md
 │   └── supported-models.md
 ├── tests/
-├── models.toml                # Model cache config (e.g. for Docker)
-├── prepare_models.py          # Model prep for publish
 └── pyproject.toml
 ```
 
 ### Key Dependencies
 
-- `openfilter[all]~=0.1.0` - Filter framework
+- `openfilter[all]>=0.1.21` - Filter framework
 - `transformers>=4.40.0` - Hugging Face APIs (AutoImageProcessor + AutoModelForImageClassification / AutoModelForObjectDetection, OwlViT, AutoModelForZeroShotObjectDetection)
 - `torch` - Inference
 - `pillow` - Image handling

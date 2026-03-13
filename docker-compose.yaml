@@ -7,7 +7,7 @@
 
 services:
   video_in:
-    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/openfilter/video_in:v0.1.9
+    image: plainsightai/openfilter-video-in:0.1.20
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: VideoIn
@@ -21,7 +21,7 @@ services:
       - filter-network
 
   filter_huggingface_vision:
-    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/filter-huggingface-vision:v0.1.0
+    image: plainsightai/openfilter-huggingface-vision:0.3.0
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: filter_huggingface_vision
@@ -53,7 +53,7 @@ services:
       - filter-network
 
   webvis:
-    image: us-west1-docker.pkg.dev/plainsightai-prod/oci/openfilter/webvis:v0.1.9
+    image: plainsightai/openfilter-webvis:0.1.20
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: webvis
