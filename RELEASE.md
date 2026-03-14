@@ -3,6 +3,11 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.3.1 - 2026-03-13
+### Changed
+- Added pre-build disk cleanup in `publish-docker` GitHub Actions job to reduce runner disk usage before multi-arch builds
+- Tuned Docker Buildx cache export from `mode=max` to `mode=min` to lower temporary disk pressure during release builds
+
 ## v0.3.0 - 2026-03-12
 ### Changed
 - Open-sourced filter under Apache 2.0 license
