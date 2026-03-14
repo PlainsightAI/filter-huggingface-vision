@@ -3,6 +3,10 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.3.2 - 2026-03-14
+### Fixed
+- Fixed `ModuleNotFoundError: No module named 'filter_huggingface_vision.backends'` caused by `pyproject.toml` excluding sub-packages from the built wheel. Switched from explicit package list to setuptools auto-discovery.
+
 ## v0.3.1 - 2026-03-13
 ### Changed
 - Added pre-build disk cleanup in `publish-docker` GitHub Actions job to reduce runner disk usage before multi-arch builds
