@@ -2,8 +2,8 @@
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["filter_huggingface_vision"]
+[tool.setuptools.packages.find]
+include = ["filter_huggingface_vision*"]
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }
