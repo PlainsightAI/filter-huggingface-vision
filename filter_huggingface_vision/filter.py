@@ -210,6 +210,11 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Required when detection_type is "open-vocabulary" or "open-vocabulary-grounding".
     # Example: [["a photo of a cat", "a photo of a dog"]] for a single image.
     text_labels: list[list[str]] | None = None
+    # Embedding extraction options (detection_type="embedding")
+    model_loader: str = "transformers"  # "transformers" or "timm"
+    exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
+    output_embeddings: bool = True  # include raw embedding vector in frame data
+    output_distances: bool = True  # include L2 distances to exemplars
 
 
 class FilterHuggingfaceVision(Filter):
@@ -290,6 +295,16 @@ class FilterHuggingfaceVision(Filter):
             or get_config_value(base, "output_topic", "main"),
             text_labels=get_config_value(config, "text_labels")
             or get_config_value(base, "text_labels"),
+            model_loader=get_config_value(config, "model_loader", "transformers")
+            or get_config_value(base, "model_loader", "transformers"),
+            exemplar_embeddings_path=get_config_value(config, "exemplar_embeddings_path", "")
+            or get_config_value(base, "exemplar_embeddings_path", ""),
+            output_embeddings=get_config_value(config, "output_embeddings", True)
+            if get_config_value(config, "output_embeddings") is not None
+            else get_config_value(base, "output_embeddings", True),
+            output_distances=get_config_value(config, "output_distances", True)
+            if get_config_value(config, "output_distances") is not None
+            else get_config_value(base, "output_distances", True),
         )
 
         rev = getattr(config, "revision", None)
@@ -301,7 +316,14 @@ class FilterHuggingfaceVision(Filter):
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
 
-        if detection_type != "image-classification":
+        if detection_type == "embedding":
+            ml = getattr(config, "model_loader", "transformers")
+            if ml not in ("transformers", "timm"):
+                raise ValueError(
+                    f"Invalid model_loader: {ml}. Must be 'transformers' or 'timm'."
+                )
+
+        if detection_type not in ("image-classification", "embedding"):
             t = getattr(config, "threshold", 0.3)
             if not isinstance(t, (int, float)) or t < 0 or t > 1:
                 raise ValueError("threshold must be a number in [0, 1].")
@@ -391,6 +413,17 @@ class FilterHuggingfaceVision(Filter):
                 continue
 
             result = self._backend.run(image, width, height, config)
+            if isinstance(result, dict) and "embeddings" in result:
+                # Embedding backend: attach embedding data directly to frame.data
+                if not hasattr(frame, "data"):
+                    frame.data = {}
+                if "meta" not in frame.data:
+                    frame.data["meta"] = {}
+                frame.data["meta"]["detection_type"] = "embedding"
+                frame.data["meta"]["task"] = "embedding"
+                frame.data["meta"]["model"] = {"id": model_id, "revision": self._revision}
+                frame.data.update(result["embeddings"])
+                continue
             if isinstance(result, dict) and "classifications" in result:
                 _task = "image-classification"
                 _detection_type = "image-classification"

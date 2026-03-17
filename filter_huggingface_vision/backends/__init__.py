@@ -1,6 +1,7 @@
-"""Registry of vision backends by detection type (closed-vocabulary / open-vocabulary / image-classification)."""
+"""Registry of vision backends by detection type (closed-vocabulary / open-vocabulary / image-classification / embedding)."""
 
 from .base import VisionBackend
+from .embedding import EmbeddingBackend
 from .grounding_dino import GroundingDinoBackend
 from .image_classification import ImageClassificationBackend
 from .object_detection import ObjectDetectionBackend
@@ -11,6 +12,7 @@ DETECTION_TYPE_TO_BACKEND = {
     "open-vocabulary": OwlVitBackend,
     "open-vocabulary-grounding": GroundingDinoBackend,
     "image-classification": ImageClassificationBackend,
+    "embedding": EmbeddingBackend,
 }
 
 

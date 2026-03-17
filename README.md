@@ -4,7 +4,7 @@
 [![Docker Version](https://img.shields.io/docker/v/plainsightai/openfilter-huggingface-vision?sort=semver)](https://hub.docker.com/r/plainsightai/openfilter-huggingface-vision)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/PlainsightAI/filter-huggingface-vision/blob/main/LICENSE)
 
-A generic filter that uses Hugging Face Transformers for vision (object detection and image classification) across video streams and OpenFilter pipelines. The filter uses one backend per **Hugging Face API**: each `detection_type` maps to a specific processor + model API. **Each API supports all models on the Hugging Face Hub that are compatible with that API**—any model loadable by the same classes will work without code changes.
+A generic filter that uses Hugging Face Transformers for vision (object detection, image classification, and embedding extraction) across video streams and OpenFilter pipelines. The filter uses one backend per **Hugging Face API**: each `detection_type` maps to a specific processor + model API. **Each API supports all models on the Hugging Face Hub that are compatible with that API**—any model loadable by the same classes will work without code changes.
 
 ### Supported Hugging Face APIs
 
@@ -16,6 +16,7 @@ We support the following Hugging Face APIs. Each API corresponds to one `detecti
 | `AutoImageProcessor` + `AutoModelForObjectDetection` | `closed-vocabulary` | `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50` |
 | `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
+| `AutoModel` / any `AutoModelFor*` / timm (hook-based) | `embedding` | `facebook/dinov2-small`, `google/vit-base-patch16-224`, `convnext_tiny.dinov3_lvd1689m` (timm) |
 
 Full list and config examples: [docs/supported-models.md](docs/supported-models.md).
 
@@ -27,17 +28,19 @@ Full list and config examples: [docs/supported-models.md](docs/supported-models.
 | **Closed-vocabulary** (DETR, RT-DETR, Conditional DETR) | `closed-vocabulary` | `scripts/object_detection.py` | `MODEL_ID`, `REVISION`, `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (Grounding DINO) | `open-vocabulary-grounding` | `scripts/grounding_dino.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
+| **Embedding extraction** (any model) | `embedding` | `scripts/generate_exemplars.py` (offline) | `MODEL_ID`, `REVISION` in `.env` |
 
-Output is written to `frame.data["meta"]` (see [Output Structure](#output-structure)): for **object detection** (closed-vocabulary, open-vocabulary, open-vocabulary-grounding), `detections` (list of `{class, rois}` with normalized coords) and `detection_confidence`; for **image classification**, only `detection_type`, `task`, `model`, and `classification` (no `detections` or `detection_confidence`).
+Output is written to `frame.data["meta"]` (see [Output Structure](#output-structure)): for **object detection** (closed-vocabulary, open-vocabulary, open-vocabulary-grounding), `detections` (list of `{class, rois}` with normalized coords) and `detection_confidence`; for **image classification**, only `detection_type`, `task`, `model`, and `classification` (no `detections` or `detection_confidence`); for **embedding**, `embedding` (feature vector) and optionally `min_exemplar_distance` (L2 distance to closest exemplar).
 
 ## Features
 
-- **Supported APIs**: Four Hugging Face APIs—image classification, closed-vocabulary object detection, OWL-ViT zero-shot, Grounding DINO. Each API supports all Hub models compatible with that API (see table above).
-- **Detection types**: `image-classification`, `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding` via pluggable backends (one backend per API).
+- **Supported APIs**: Five Hugging Face APIs—image classification, closed-vocabulary object detection, OWL-ViT zero-shot, Grounding DINO, and embedding extraction. Each API supports all Hub models compatible with that API (see table above).
+- **Detection types**: `image-classification`, `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, `embedding` via pluggable backends (one backend per API).
 - **Image classification**: Run ViT, ConvNeXt, or any `AutoModelForImageClassification` model with `model_id`, `revision`, `top_k`; output `classifications` (label, score).
 - **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output in `frame.data["meta"]` with `detections` (`{class, rois}` normalized), `detection_confidence`.
 - **Zero-shot detection**: OWL-ViT or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
-- **Standardized output**: JSON-serializable payload in `frame.data["meta"]`: object detection writes `detections`, `detection_confidence`; image classification writes only `detection_type`, `task`, `model`, and `classification` (no detections or detection_confidence).
+- **Embedding extraction**: Extract penultimate-layer feature embeddings from *any* vision model (classification, detection, or feature extractor). Uses PyTorch forward hooks to capture the last representation before the output head, making it model-agnostic. Supports HuggingFace Transformers and timm via the `model_loader` config option. Optionally computes minimum L2 distance to exemplar embeddings for similarity-based anomaly detection.
+- **Standardized output**: JSON-serializable payload in `frame.data["meta"]`: object detection writes `detections`, `detection_confidence`; image classification writes only `detection_type`, `task`, `model`, and `classification` (no detections or detection_confidence); embedding writes `embedding` and optionally `min_exemplar_distance` to `frame.data`.
 - **Visualization**: Optional topic (e.g. `viz`) with bounding boxes/labels (detection) or top label + score (classification).
 - **Frame input**: OpenFilter convention (`frame.rw_bgr.image`); fallback to `frame.data[topic]`.
 - **Device selection**: CPU or CUDA. **Model compatibility**: Works with dict and object outputs from processors (e.g. RT-DETR, DETR).
@@ -107,7 +110,7 @@ PORT=8010
 |----------|------|---------|----------|-------|
 | `model_id` | string | — | Yes | Hugging Face model id (e.g. PekingU/rtdetr_r50vd) |
 | `revision` | string | — | Yes | Model revision (reproducibility) |
-| `detection_type` | string | "closed-vocabulary" | No | `image-classification`, `closed-vocabulary`, `open-vocabulary`, or `open-vocabulary-grounding` |
+| `detection_type` | string | "closed-vocabulary" | No | `image-classification`, `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, or `embedding` |
 | `top_k` | int | 5 | No | For image-classification: number of top classes to return (1–1000) |
 | `text_labels` | list | — | For zero-shot / grounding | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
 | `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] (not used for image-classification) |
@@ -119,6 +122,11 @@ PORT=8010
 | `visualization_topic` | string | "viz" | No | Topic name for visualization frame |
 | `visualization_alpha` | float | 0.7 | No | Overlay alpha (reserved) |
 | `visualization_source_topic` | string | — | No | Optional source topic for viz image |
+
+| `model_loader` | string | "transformers" | No | For `embedding` type: `"transformers"` or `"timm"` — how to load the model |
+| `exemplar_embeddings_path` | string | — | No | For `embedding` type: path to `.npz` file with reference embeddings |
+| `output_embeddings` | bool | true | No | For `embedding` type: include raw embedding vector in frame data |
+| `output_distances` | bool | true | No | For `embedding` type: include `min_exemplar_distance` (requires exemplars) |
 
 ## Usage
 
@@ -175,6 +183,37 @@ FilterHuggingfaceVisionConfig(
 
 Output format is the same: `frame.data["meta"]` with `detections` (list of `{class, rois}` normalized), `detection_confidence`.
 
+### Embedding extraction pipeline
+
+Extract penultimate-layer embeddings from any vision model. Works with classification models, detection models, or pure feature extractors — the backend uses PyTorch forward hooks to capture the last representation before the output head.
+
+```bash
+# In .env: MODEL_ID, REVISION, VIDEO_PATH
+# For exemplar distance: also set EXEMPLAR_EMBEDDINGS_PATH
+```
+
+Or in code:
+
+```python
+FilterHuggingfaceVisionConfig(
+    detection_type="embedding",
+    model_id="facebook/dinov2-small",
+    revision="main",
+    model_loader="transformers",  # or "timm" for timm models
+    exemplar_embeddings_path="./exemplars.npz",  # optional
+)
+```
+
+Output: `frame.data["embedding"]` (feature vector) and optionally `frame.data["min_exemplar_distance"]`. Metadata in `frame.data["meta"]` with `detection_type`, `task`, `model`.
+
+**Generating exemplar embeddings:**
+
+```bash
+# Set in .env: MODEL_ID, REVISION, IMAGE_DIR (directory of reference images)
+python scripts/generate_exemplars.py
+# Outputs: exemplars.npz (default, or set OUTPUT_PATH)
+```
+
 ### Grounding DINO pipeline
 
 Run open-vocabulary detection with Grounding DINO (model fixed in script; only `VIDEO_PATH` required in .env):
@@ -215,6 +254,13 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 | `task` | string | `object-detection`, `zero-shot-object-detection`, or `image-classification`. |
 | `model` | object | `{ "id": "<model_id>", "revision": "<revision>" }` (Hugging Face model). |
 | `classification` | object | **Image-classification only.** `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`. Classification output has no `detections` nor `detection_confidence`. |
+
+**Embedding output** is written to `frame.data` (not nested under `meta`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `embedding` | list[float] | Feature vector from the penultimate layer. Dimensionality depends on the model. |
+| `min_exemplar_distance` | float | **Only when exemplars are loaded.** L2 distance to the closest exemplar embedding. |
 
 **Object detection** example (`frame.data["meta"]`):
 
@@ -258,6 +304,22 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 }
 ```
 
+**Embedding** (`frame.data`):
+
+```json
+{
+  "meta": {
+    "id": 38,
+    "ts": 1761090922.42,
+    "detection_type": "embedding",
+    "task": "embedding",
+    "model": { "id": "facebook/dinov2-small", "revision": "main" }
+  },
+  "embedding": [0.0123, -0.0456, 0.0789, "..."],
+  "min_exemplar_distance": 0.42
+}
+```
+
 ## Development
 
 ### Project Structure
@@ -266,12 +328,13 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 filter-huggingface-vision/
 ├── filter_huggingface_vision/
 │   ├── filter.py              # Main filter implementation
-│   └── backends/              # One backend per HF API (image_classification, object_detection, owlvit, grounding_dino)
+│   └── backends/              # One backend per HF API (image_classification, object_detection, owlvit, grounding_dino, embedding)
 ├── scripts/
 │   ├── image_classification.py
 │   ├── object_detection.py
 │   ├── zero_shot_object_detection.py
-│   └── grounding_dino.py
+│   ├── grounding_dino.py
+│   └── generate_exemplars.py  # Offline: generate exemplar embeddings from reference images
 ├── docs/
 │   ├── overview.md
 │   ├── object-detection.md

@@ -10,11 +10,13 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 | `AutoImageProcessor` + `AutoModelForObjectDetection` | `closed-vocabulary` | `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50` |
 | `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
+| `AutoModel` / any `AutoModelFor*` / timm (hook-based) | `embedding` | `facebook/dinov2-small`, `facebook/dinov2-base`, `google/vit-base-patch16-224`, `convnext_tiny.dinov3_lvd1689m` (timm) |
 
 **Output format:** All results are written to `frame.data["meta"]`. Upstream meta (`id`, `ts`, `src`, `src_fps`) is preserved.
 
 - **Object detection:** `detections`, `detection_confidence`, `detection_type`, `task`, `model`.
 - **Image classification:** no `detections` nor `detection_confidence`. Only `classification`: `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`, plus `detection_type`, `task`, `model`.
+- **Embedding:** `embedding` (feature vector) and optionally `min_exemplar_distance` written to `frame.data`. Metadata (`detection_type`, `task`, `model`) in `frame.data["meta"]`.
 
 ## Pipelines
 
@@ -24,6 +26,7 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 | `scripts/image_classification.py` | Image classification (ViT / ConvNeXt) | `MODEL_ID` + `REVISION` from .env |
 | `scripts/zero_shot_object_detection.py` | Open-vocabulary (OWL-ViT) | Fixed in code: `google/owlvit-base-patch32` @ main |
 | `scripts/grounding_dino.py` | Open-vocabulary (Grounding DINO) | Fixed in code: MM Grounding DINO tiny @ main |
+| `scripts/generate_exemplars.py` | Embedding (offline exemplar generation) | `MODEL_ID` + `REVISION` from .env |
 
 The zero-shot and Grounding DINO scripts use a fixed model in code so the same .env (e.g. with `VIDEO_PATH`) can be shared without loading the wrong model.
 
@@ -183,3 +186,79 @@ VIDEO_PATH=./filter_example_video.mp4
 THRESHOLD=0.3
 PORT=8010
 ```
+
+---
+
+## Embedding extraction (any vision model)
+
+**API:** Model-agnostic — uses PyTorch forward hooks to extract penultimate-layer features from any vision model. Works with:
+
+- **HuggingFace Transformers** (`model_loader="transformers"`): Tries `AutoModel` first (headless). If that fails, falls back to headed classes (`AutoModelForImageClassification`, `AutoModelForObjectDetection`, etc.) and hooks the last layer before the output head. This means you can extract embeddings from *any* HF vision model — classification, detection, segmentation, depth estimation — without code changes.
+- **timm** (`model_loader="timm"`): Uses `timm.create_model(name, num_classes=0)` which natively strips the classifier head.
+
+**Example model IDs:**
+
+| MODEL_ID | REVISION | Notes |
+|----------|----------|-------|
+| facebook/dinov2-small | main | Pure feature extractor (384-d, loaded via HF Transformers) |
+| facebook/dinov2-base | main | Pure feature extractor (768-d, loaded via HF Transformers) |
+| google/vit-base-patch16-224 | main | Classification model — hook extracts pre-head features |
+| facebook/detr-resnet-50 | main | Detection model — hook extracts backbone features |
+| convnext_tiny.dinov3_lvd1689m | main | DINOv3-distilled ConvNeXt (auto-detected as timm) |
+| convnext_small.dinov3_lvd1689m | main | DINOv3-distilled ConvNeXt, larger (auto-detected as timm) |
+
+### Example config (embedding, in code)
+
+```python
+FilterHuggingfaceVisionConfig(
+    detection_type="embedding",
+    model_id="facebook/dinov2-small",  # any HF or timm model — auto-detected
+    revision="main",
+    exemplar_embeddings_path="./exemplars.npz",  # optional
+    output_embeddings=True,
+    output_distances=True,
+)
+```
+
+### Example .env (embedding pipeline)
+
+```bash
+MODEL_ID=facebook/dinov2-small
+REVISION=main
+VIDEO_PATH=./filter_example_video.mp4
+EXEMPLAR_EMBEDDINGS_PATH=./exemplars.npz
+```
+
+### Generating exemplar embeddings
+
+Use `scripts/generate_exemplars.py` to extract embeddings from a directory of reference images:
+
+```bash
+MODEL_ID=facebook/dinov2-small
+REVISION=main
+IMAGE_DIR=./reference_images
+OUTPUT_PATH=./exemplars.npz
+
+python scripts/generate_exemplars.py
+```
+
+The `.npz` file contains an `embeddings` key with shape `(N, D)` where N is the number of reference images and D is the embedding dimensionality.
+
+### Output (embedding)
+
+Embedding output is written to `frame.data` (not nested under `meta`):
+
+```json
+{
+  "meta": {
+    "detection_type": "embedding",
+    "task": "embedding",
+    "model": { "id": "facebook/dinov2-small", "revision": "main" }
+  },
+  "embedding": [0.0123, -0.0456, 0.0789, "..."],
+  "min_exemplar_distance": 0.42
+}
+```
+
+- `embedding`: Feature vector from the penultimate layer. Dimensionality depends on the model (e.g. 384 for DINOv2-small, 768 for DINOv2-base/ViT-base).
+- `min_exemplar_distance`: Only present when `exemplar_embeddings_path` is set. L2 distance to the closest exemplar — lower values mean the frame is more similar to the reference set.
