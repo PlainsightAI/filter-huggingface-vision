@@ -42,6 +42,7 @@ import glob
 import logging
 import os
 import sys
+import types
 
 import numpy as np
 import torch
@@ -53,9 +54,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# Reuse the backend's hook-based extraction
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from filter_huggingface_vision.backends.embedding import EmbeddingBackend, _pool_embedding
+from filter_huggingface_vision.backends.embedding import EmbeddingBackend
 
 
 def _collect_images(image_dir: str) -> list[str]:
@@ -108,7 +107,7 @@ def main():
 
     # Load the backend (reuses the same hook-based extraction as runtime)
     backend = EmbeddingBackend()
-    backend.load(type("Config", (), {k: v for k, v in config.items()})())
+    backend.load(types.SimpleNamespace(**config))
 
     embeddings = []
     for i, path in enumerate(image_paths):

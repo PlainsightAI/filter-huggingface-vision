@@ -113,7 +113,11 @@ def _apply_meta(meta_dict, payload, config):
     meta_dict["detection_type"] = _dt
     meta_dict["task"] = payload.get("task", "object-detection")
     meta_dict["model"] = payload.get("model", {"id": "", "revision": ""})
-    if classification_meta is not None:
+    if _dt == "embedding":
+        # Embedding payloads carry their data in frame.data directly, not in meta.
+        # Only detection_type, task, and model are set here.
+        pass
+    elif classification_meta is not None:
         meta_dict["classification"] = {
             **classification_meta,
             "timestamp": meta_dict.get("ts", time.time()),
@@ -298,7 +302,8 @@ class FilterHuggingfaceVision(Filter):
             model_loader=get_config_value(config, "model_loader", "transformers")
             or get_config_value(base, "model_loader", "transformers"),
             exemplar_embeddings_path=get_config_value(config, "exemplar_embeddings_path", "")
-            or get_config_value(base, "exemplar_embeddings_path", ""),
+            if get_config_value(config, "exemplar_embeddings_path") is not None
+            else get_config_value(base, "exemplar_embeddings_path", ""),
             output_embeddings=get_config_value(config, "output_embeddings", True)
             if get_config_value(config, "output_embeddings") is not None
             else get_config_value(base, "output_embeddings", True),
@@ -414,14 +419,17 @@ class FilterHuggingfaceVision(Filter):
 
             result = self._backend.run(image, width, height, config)
             if isinstance(result, dict) and "embeddings" in result:
-                # Embedding backend: attach embedding data directly to frame.data
+                _task = "embedding"
+                _detection_type = "embedding"
+                payload = {
+                    "detection_type": _detection_type,
+                    "task": _task,
+                    "model": {"id": model_id, "revision": self._revision},
+                }
                 if not hasattr(frame, "data"):
                     frame.data = {}
-                if "meta" not in frame.data:
-                    frame.data["meta"] = {}
-                frame.data["meta"]["detection_type"] = "embedding"
-                frame.data["meta"]["task"] = "embedding"
-                frame.data["meta"]["model"] = {"id": model_id, "revision": self._revision}
+                frame.data.setdefault("meta", {})
+                _apply_meta(frame.data["meta"], payload, config)
                 frame.data.update(result["embeddings"])
                 continue
             if isinstance(result, dict) and "classifications" in result:
@@ -451,9 +459,7 @@ class FilterHuggingfaceVision(Filter):
                 }
             if not hasattr(frame, "data"):
                 frame.data = {}
-            # Meta format: for detection -> detections, detection_confidence; for classification -> classification only (no detections)
-            if "meta" not in frame.data:
-                frame.data["meta"] = {}
+            frame.data.setdefault("meta", {})
             _apply_meta(frame.data["meta"], payload, config)
 
             if main_frame_payload is None:

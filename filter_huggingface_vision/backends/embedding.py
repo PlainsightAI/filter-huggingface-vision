@@ -48,18 +48,27 @@ def _find_penultimate_module(model: nn.Module) -> nn.Module:
     """Return the last module before the output head.
 
     Strategy:
-    1. Walk named_children looking for the last child whose name is NOT a
-       known head name.
-    2. If no head is found (e.g. AutoModel already stripped it), return the
+    1. Walk top-level children; for each, check whether its name or any of its
+       descendants' names match a known head name.
+    2. Return the last top-level child that is NOT (and does not contain) a head.
+    3. If no head is found (e.g. AutoModel already stripped it), return the
        last child — its output is the final representation.
     """
     children = list(model.named_children())
     if not children:
         return model
 
+    def _is_or_contains_head(name: str, module: nn.Module) -> bool:
+        if name in _HEAD_NAMES:
+            return True
+        for sub_name, _ in module.named_modules():
+            if sub_name and sub_name.rsplit(".", 1)[-1] in _HEAD_NAMES:
+                return True
+        return False
+
     last_non_head = None
     for name, module in children:
-        if name not in _HEAD_NAMES:
+        if not _is_or_contains_head(name, module):
             last_non_head = module
 
     return last_non_head if last_non_head is not None else children[-1][1]
@@ -80,10 +89,15 @@ def _pool_embedding(tensor: torch.Tensor) -> torch.Tensor:
         # (B, seq_len, hidden) — take CLS token
         return tensor[0, 0]
     if tensor.dim() == 4:
-        b, c_or_h, h_or_w, w_or_d = tensor.shape
-        # Heuristic: channels-first if dim1 < dim2 (e.g. 768 < 14 is False,
-        # so (B,768,14,14) is channels-first; (B,14,14,768) is channels-last).
-        if c_or_h > w_or_d:
+        b, dim1, dim2, dim3 = tensor.shape
+        # Heuristic: channels-first if dim1 > dim3 (e.g. (B,768,14,14) has
+        # 768 > 14 so channels-first; (B,14,14,768) has 14 < 768 so channels-last).
+        if dim1 == dim3:
+            logger.warning(
+                "Ambiguous 4D tensor shape %s — dim1 == dim3, assuming channels-first.",
+                tensor.shape,
+            )
+        if dim1 >= dim3:
             # channels-first: (B, D, H, W)
             return tensor[0].mean(dim=(-2, -1))
         else:
@@ -113,7 +127,7 @@ class EmbeddingBackend(VisionBackend):
         if self._model_loader == "transformers":
             self._load_transformers(model_id, revision)
         elif self._model_loader == "timm":
-            self._load_timm(model_id)
+            self._load_timm(model_id, revision)
         else:
             raise ValueError(
                 f"Invalid model_loader: {self._model_loader}. "
@@ -191,8 +205,13 @@ class EmbeddingBackend(VisionBackend):
                 cls_name,
             )
 
-    def _load_timm(self, model_id: str):
+    def _load_timm(self, model_id: str, revision: str | None = None):
         """Load a timm model with the classification head stripped."""
+        if revision:
+            logger.warning(
+                "timm loader does not support 'revision' — ignoring revision=%s",
+                revision,
+            )
         import timm
         from timm.data import resolve_data_config
         from timm.data.transforms_factory import create_transform
@@ -205,7 +224,7 @@ class EmbeddingBackend(VisionBackend):
         data_config = resolve_data_config(self._model.pretrained_cfg)
         self._processor = create_transform(**data_config, is_training=False)
 
-    def _hook_fn(self, module, input, output):
+    def _hook_fn(self, module, input_, output):
         """Forward-hook callback: stash the module's output."""
         # output can be a tensor or a tuple/object; grab the tensor.
         if isinstance(output, torch.Tensor):
@@ -294,8 +313,8 @@ class EmbeddingBackend(VisionBackend):
             self._hook_handle.remove()
             self._hook_handle = None
         self._hooked_output = {}
+        self._exemplar_embeddings = None
         self._processor = None
         self._model = None
-        self._exemplar_embeddings = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

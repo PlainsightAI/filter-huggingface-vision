@@ -5,9 +5,10 @@ from abc import ABC, abstractmethod
 
 class VisionBackend(ABC):
     """Backend contract: load(config) and run(image_pil, width, height, config).
-    run() may return either:
+    run() may return one of:
     - A list of detections, each: { "label", "score", "box": { "format": "xyxy", "xmin", "ymin", "xmax", "ymax" } }
     - A dict with key "classifications": list of { "label": str, "score": float } (image-classification backend).
+    - A dict with key "embeddings": { "embedding": list[float], "min_exemplar_distance": float } (embedding backend).
     """
 
     @abstractmethod
