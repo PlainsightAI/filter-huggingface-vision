@@ -25,13 +25,13 @@ def _log_cuda_diagnostics(requested: str) -> None:
         logger.info("CUDA version: %s", torch.version.cuda)
     else:
         logger.warning(
-            "CUDA requested but not available — falling back to CPU. "
+            "CUDA requested but not available -- falling back to CPU. "
             "PyTorch built with CUDA support: %s",
             torch.backends.cuda.is_built(),
         )
 
 
-def resolve_device(device):
+def resolve_device(device: "int | str") -> "torch.device":
     """Resolve config device value to a torch.device. Falls back to CPU if CUDA is unavailable."""
     import torch
 

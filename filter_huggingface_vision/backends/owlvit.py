@@ -67,7 +67,9 @@ class OwlVitBackend(VisionBackend):
 
         self._device = resolve_device(get_config_value(config, "device", "cpu"))
         model_id = get_config_value(config, "model_id")
-        revision = (get_config_value(config, "revision") or "").strip() or "main"
+        revision = (get_config_value(config, "revision") or "").strip() or None
+        if not revision:
+            raise ValueError("revision is required and must be non-empty.")
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
         self._processor = OwlViTProcessor.from_pretrained(
             model_id, revision=revision, trust_remote_code=False
