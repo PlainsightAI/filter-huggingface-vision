@@ -299,5 +299,198 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
         self.assertNotIn("exemplar_distances", emb)
 
 
+class TestPoolEmbeddingEdgeCases(unittest.TestCase):
+    """Additional _pool_embedding tests for edge cases."""
+
+    def test_5d_tensor_fallback(self):
+        """5D+ tensors should flatten to 1D via the fallback path."""
+        t = torch.randn(1, 2, 3, 4, 5)
+        result = _pool_embedding(t)
+        self.assertEqual(result.dim(), 1)
+        self.assertEqual(result.shape[0], 2 * 3 * 4 * 5)
+
+    def test_4d_ambiguous_shape_warns(self):
+        """Square-map tensor (dim1 == dim3) should emit a warning."""
+        t = torch.randn(1, 64, 64, 64)
+        with self.assertLogs("filter_huggingface_vision.backends.embedding", level="WARNING") as cm:
+            result = _pool_embedding(t)
+        self.assertTrue(any("Ambiguous" in msg for msg in cm.output))
+        # Should still produce a 1D result
+        self.assertEqual(result.dim(), 1)
+
+
+class TestEmbeddingBackendShutdown(unittest.TestCase):
+    """Tests for shutdown() cleanup."""
+
+    def test_shutdown_removes_hook_and_clears_state(self):
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        backend._processor = MagicMock()
+        backend._model = MagicMock()
+        backend._exemplar_embeddings = np.zeros((5, 384))
+        backend._hooked_output = {"features": torch.randn(1, 384)}
+
+        mock_handle = MagicMock()
+        backend._hook_handle = mock_handle
+
+        backend.shutdown()
+
+        mock_handle.remove.assert_called_once()
+        self.assertIsNone(backend._hook_handle)
+        self.assertIsNone(backend._processor)
+        self.assertIsNone(backend._model)
+        self.assertIsNone(backend._exemplar_embeddings)
+        self.assertEqual(backend._hooked_output, {})
+
+    def test_shutdown_no_hook(self):
+        """shutdown() works when no hook was installed."""
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        backend._processor = MagicMock()
+        backend._model = MagicMock()
+        backend._exemplar_embeddings = None
+        backend._hooked_output = {}
+        backend._hook_handle = None
+
+        backend.shutdown()  # should not raise
+
+        self.assertIsNone(backend._processor)
+        self.assertIsNone(backend._model)
+
+
+class TestEmbeddingBackendRunEdgeCases(unittest.TestCase):
+    """Tests for run() edge cases."""
+
+    def _make_backend(self, **kwargs):
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        backend._device = torch.device("cpu")
+        backend._model_loader = kwargs.get("model_loader", "transformers")
+        backend._uses_hook = kwargs.get("uses_hook", False)
+        backend._hooked_output = {}
+        backend._output_embeddings = kwargs.get("output_embeddings", True)
+        backend._output_distances = kwargs.get("output_distances", True)
+        backend._exemplar_embeddings = kwargs.get("exemplar_embeddings", None)
+
+        mock_output = MagicMock()
+        mock_output.last_hidden_state = torch.randn(1, 1, 4)
+        mock_output.pooler_output = None
+        backend._model = MagicMock(return_value=mock_output)
+        backend._processor = MagicMock(
+            return_value={"pixel_values": torch.randn(1, 3, 224, 224)}
+        )
+        return backend
+
+    def test_output_embeddings_false_excludes_embedding(self):
+        """When output_embeddings=False, result should not contain 'embedding' key."""
+        from PIL import Image
+
+        backend = self._make_backend(output_embeddings=False, exemplar_embeddings=None)
+        result = backend.run(Image.new("RGB", (224, 224)), 224, 224, {})
+
+        self.assertNotIn("embedding", result["embeddings"])
+
+    def test_output_embeddings_false_no_exemplars_empty_dict(self):
+        """output_embeddings=False + no exemplars = empty embeddings dict."""
+        from PIL import Image
+
+        backend = self._make_backend(
+            output_embeddings=False, output_distances=True, exemplar_embeddings=None
+        )
+        result = backend.run(Image.new("RGB", (224, 224)), 224, 224, {})
+
+        self.assertEqual(result["embeddings"], {})
+
+    def test_run_value_error_when_no_features(self):
+        """run() raises ValueError when model output has no extractable features."""
+        from PIL import Image
+
+        backend = self._make_backend()
+        # Make model return an object with no usable attributes
+        mock_output = MagicMock(spec=[])
+        mock_output.last_hidden_state = None
+        mock_output.pooler_output = None
+        del mock_output.last_hidden_state
+        del mock_output.pooler_output
+
+        backend._model = MagicMock(return_value=mock_output)
+
+        with self.assertRaises(ValueError):
+            backend.run(Image.new("RGB", (224, 224)), 224, 224, {})
+
+    def test_timm_loading_path(self):
+        """run() with timm model_loader uses the processor as a transform."""
+        from PIL import Image
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        backend._device = torch.device("cpu")
+        backend._model_loader = "timm"
+        backend._uses_hook = False
+        backend._hooked_output = {}
+        backend._output_embeddings = True
+        backend._output_distances = False
+        backend._exemplar_embeddings = None
+
+        # timm processor is a transform callable that returns a tensor
+        fake_tensor = torch.randn(3, 224, 224)
+        backend._processor = MagicMock(return_value=fake_tensor)
+        # timm model returns a 2D tensor directly
+        backend._model = MagicMock(return_value=torch.randn(1, 512))
+
+        result = backend.run(Image.new("RGB", (224, 224)), 224, 224, {})
+
+        self.assertIn("embedding", result["embeddings"])
+        self.assertEqual(len(result["embeddings"]["embedding"]), 512)
+        # Verify processor was called with the PIL image
+        backend._processor.assert_called_once()
+
+
+class TestEmbeddingFilterVisualizationWarning(unittest.TestCase):
+    """Test that draw_visualization with embedding emits a warning."""
+
+    def test_draw_visualization_with_embedding_warns(self):
+        from PIL import Image
+
+        fake = [0.1, 0.2, 0.3]
+
+        class MockBackend:
+            def load(self, config):
+                pass
+
+            def run(self, image_pil, width, height, config):
+                return {"embeddings": {"embedding": fake}}
+
+            def shutdown(self):
+                pass
+
+        defaults = dict(
+            id="test",
+            sources="",
+            outputs="",
+            model_id="facebook/dinov2-small",
+            revision="main",
+            detection_type="embedding",
+            draw_visualization=True,
+        )
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(**defaults)
+        )
+
+        with patch(
+            "filter_huggingface_vision.filter.get_backend",
+            side_effect=lambda dt: MockBackend,
+        ):
+            f = FilterHuggingfaceVision(config)
+            f.setup(config)
+
+        pil = Image.new("RGB", (224, 224), color="red")
+        frame = type("Frame", (), {"data": {"main": pil}})()
+
+        with self.assertLogs("filter_huggingface_vision.filter", level="WARNING") as cm:
+            try:
+                f.process({"main": frame})
+            finally:
+                f.shutdown()
+
+        self.assertTrue(any("draw_visualization" in msg for msg in cm.output))
+
+
 if __name__ == "__main__":
     unittest.main()

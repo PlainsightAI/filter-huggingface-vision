@@ -204,15 +204,15 @@ PORT=8010
 | facebook/dinov2-base | main | Pure feature extractor (768-d, loaded via HF Transformers) |
 | google/vit-base-patch16-224 | main | Classification model — hook extracts pre-head features |
 | facebook/detr-resnet-50 | main | Detection model — hook extracts backbone features |
-| convnext_tiny.dinov3_lvd1689m | main | DINOv3-distilled ConvNeXt (auto-detected as timm) |
-| convnext_small.dinov3_lvd1689m | main | DINOv3-distilled ConvNeXt, larger (auto-detected as timm) |
+| convnext_tiny.dinov3_lvd1689m | main | DINOv3-distilled ConvNeXt (requires `model_loader="timm"`) |
+| convnext_small.dinov3_lvd1689m | main | DINOv3-distilled ConvNeXt, larger (requires `model_loader="timm"`) |
 
 ### Example config (embedding, in code)
 
 ```python
 FilterHuggingfaceVisionConfig(
     detection_type="embedding",
-    model_id="facebook/dinov2-small",  # any HF or timm model — auto-detected
+    model_id="facebook/dinov2-small",  # HF model (default); set model_loader="timm" for timm models
     revision="main",
     exemplar_embeddings_path="./exemplars.npz",  # optional
     output_embeddings=True,

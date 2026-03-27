@@ -20,7 +20,9 @@ class VisionBackend(ABC):
 
     @abstractmethod
     def run(self, image_pil, width, height, config):
-        """Run inference. Return list of detections (object detection) or dict with "classifications" (image classification)."""
+        """Run inference. Return list of detections (object detection),
+        dict with "classifications" (image classification), or
+        dict with "embeddings" (embedding extraction)."""
         pass
 
     def shutdown(self):

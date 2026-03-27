@@ -202,7 +202,7 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Model/config
     model_id: str = None
     revision: str = None
-    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary" | "image-classification"
+    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary" | "open-vocabulary-grounding" | "image-classification" | "embedding"
     threshold: float = 0.3
     device: str = "cpu"
     trust_remote_code: bool = False
@@ -431,6 +431,11 @@ class FilterHuggingfaceVision(Filter):
                 frame.data.setdefault("meta", {})
                 _apply_meta(frame.data["meta"], payload, config)
                 frame.data.update(result["embeddings"])
+                if getattr(self, "draw_visualization", False):
+                    logger.warning(
+                        "draw_visualization has no effect with detection_type='embedding' — "
+                        "embedding frames have no visual output to render."
+                    )
                 continue
             if isinstance(result, dict) and "classifications" in result:
                 _task = "image-classification"
