@@ -109,7 +109,9 @@ def _apply_meta(meta_dict, payload, config):
         payload, width, height
     )
     _dt = payload.get("detection_type")
-    assert _dt is not None, "payload must include detection_type (set by classification or detection branch)"
+    assert _dt is not None, (
+        "payload must include detection_type (set by classification or detection branch)"
+    )
     meta_dict["detection_type"] = _dt
     meta_dict["task"] = payload.get("task", "object-detection")
     meta_dict["model"] = payload.get("model", {"id": "", "revision": ""})
@@ -301,7 +303,9 @@ class FilterHuggingfaceVision(Filter):
             or get_config_value(base, "text_labels"),
             model_loader=get_config_value(config, "model_loader", "transformers")
             or get_config_value(base, "model_loader", "transformers"),
-            exemplar_embeddings_path=get_config_value(config, "exemplar_embeddings_path", "")
+            exemplar_embeddings_path=get_config_value(
+                config, "exemplar_embeddings_path", ""
+            )
             if get_config_value(config, "exemplar_embeddings_path") is not None
             else get_config_value(base, "exemplar_embeddings_path", ""),
             output_embeddings=get_config_value(config, "output_embeddings", True)
@@ -377,6 +381,11 @@ class FilterHuggingfaceVision(Filter):
         self.visualization_source_topic = getattr(
             config, "visualization_source_topic", None
         )
+        if self.draw_visualization and detection_type == "embedding":
+            logger.warning(
+                "draw_visualization has no effect with detection_type='embedding' — "
+                "embedding frames have no visual output to render."
+            )
         logger.info(
             "filter_huggingface_vision loaded detection_type=%s model_id=%s revision=%s",
             detection_type,
@@ -431,11 +440,6 @@ class FilterHuggingfaceVision(Filter):
                 frame.data.setdefault("meta", {})
                 _apply_meta(frame.data["meta"], payload, config)
                 frame.data.update(result["embeddings"])
-                if getattr(self, "draw_visualization", False):
-                    logger.warning(
-                        "draw_visualization has no effect with detection_type='embedding' — "
-                        "embedding frames have no visual output to render."
-                    )
                 continue
             if isinstance(result, dict) and "classifications" in result:
                 _task = "image-classification"

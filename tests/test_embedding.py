@@ -312,7 +312,9 @@ class TestPoolEmbeddingEdgeCases(unittest.TestCase):
     def test_4d_ambiguous_shape_warns(self):
         """Square-map tensor (dim1 == dim3) should emit a warning."""
         t = torch.randn(1, 64, 64, 64)
-        with self.assertLogs("filter_huggingface_vision.backends.embedding", level="WARNING") as cm:
+        with self.assertLogs(
+            "filter_huggingface_vision.backends.embedding", level="WARNING"
+        ) as cm:
             result = _pool_embedding(t)
         self.assertTrue(any("Ambiguous" in msg for msg in cm.output))
         # Should still produce a 1D result
@@ -478,18 +480,13 @@ class TestEmbeddingFilterVisualizationWarning(unittest.TestCase):
             side_effect=lambda dt: MockBackend,
         ):
             f = FilterHuggingfaceVision(config)
-            f.setup(config)
-
-        pil = Image.new("RGB", (224, 224), color="red")
-        frame = type("Frame", (), {"data": {"main": pil}})()
-
-        with self.assertLogs("filter_huggingface_vision.filter", level="WARNING") as cm:
-            try:
-                f.process({"main": frame})
-            finally:
-                f.shutdown()
+            with self.assertLogs(
+                "filter_huggingface_vision.filter", level="WARNING"
+            ) as cm:
+                f.setup(config)
 
         self.assertTrue(any("draw_visualization" in msg for msg in cm.output))
+        f.shutdown()
 
 
 if __name__ == "__main__":
