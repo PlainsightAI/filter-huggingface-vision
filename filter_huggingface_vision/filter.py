@@ -109,11 +109,17 @@ def _apply_meta(meta_dict, payload, config):
         payload, width, height
     )
     _dt = payload.get("detection_type")
-    assert _dt is not None, "payload must include detection_type (set by classification or detection branch)"
+    assert _dt is not None, (
+        "payload must include detection_type (set by classification or detection branch)"
+    )
     meta_dict["detection_type"] = _dt
     meta_dict["task"] = payload.get("task", "object-detection")
     meta_dict["model"] = payload.get("model", {"id": "", "revision": ""})
-    if classification_meta is not None:
+    if _dt == "embedding":
+        # Embedding payloads carry their data in frame.data directly, not in meta.
+        # Only detection_type, task, and model are set here.
+        pass
+    elif classification_meta is not None:
         meta_dict["classification"] = {
             **classification_meta,
             "timestamp": meta_dict.get("ts", time.time()),
@@ -198,7 +204,7 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Model/config
     model_id: str = None
     revision: str = None
-    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary" | "image-classification"
+    detection_type: str = "closed-vocabulary"  # "closed-vocabulary" | "open-vocabulary" | "open-vocabulary-grounding" | "image-classification" | "embedding"
     threshold: float = 0.3
     device: str = "cpu"
     trust_remote_code: bool = False
@@ -210,6 +216,11 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Required when detection_type is "open-vocabulary" or "open-vocabulary-grounding".
     # Example: [["a photo of a cat", "a photo of a dog"]] for a single image.
     text_labels: list[list[str]] | None = None
+    # Embedding extraction options (detection_type="embedding")
+    model_loader: str = "transformers"  # "transformers" or "timm"
+    exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
+    output_embeddings: bool = True  # include raw embedding vector in frame data
+    output_distances: bool = True  # include L2 distances to exemplars
 
 
 class FilterHuggingfaceVision(Filter):
@@ -290,6 +301,19 @@ class FilterHuggingfaceVision(Filter):
             or get_config_value(base, "output_topic", "main"),
             text_labels=get_config_value(config, "text_labels")
             or get_config_value(base, "text_labels"),
+            model_loader=get_config_value(config, "model_loader", "transformers")
+            or get_config_value(base, "model_loader", "transformers"),
+            exemplar_embeddings_path=get_config_value(
+                config, "exemplar_embeddings_path", ""
+            )
+            if get_config_value(config, "exemplar_embeddings_path") is not None
+            else get_config_value(base, "exemplar_embeddings_path", ""),
+            output_embeddings=get_config_value(config, "output_embeddings", True)
+            if get_config_value(config, "output_embeddings") is not None
+            else get_config_value(base, "output_embeddings", True),
+            output_distances=get_config_value(config, "output_distances", True)
+            if get_config_value(config, "output_distances") is not None
+            else get_config_value(base, "output_distances", True),
         )
 
         rev = getattr(config, "revision", None)
@@ -301,7 +325,14 @@ class FilterHuggingfaceVision(Filter):
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
 
-        if detection_type != "image-classification":
+        if detection_type == "embedding":
+            ml = getattr(config, "model_loader", "transformers")
+            if ml not in ("transformers", "timm"):
+                raise ValueError(
+                    f"Invalid model_loader: {ml}. Must be 'transformers' or 'timm'."
+                )
+
+        if detection_type not in ("image-classification", "embedding"):
             t = getattr(config, "threshold", 0.3)
             if not isinstance(t, (int, float)) or t < 0 or t > 1:
                 raise ValueError("threshold must be a number in [0, 1].")
@@ -350,6 +381,11 @@ class FilterHuggingfaceVision(Filter):
         self.visualization_source_topic = getattr(
             config, "visualization_source_topic", None
         )
+        if self.draw_visualization and detection_type == "embedding":
+            logger.warning(
+                "draw_visualization has no effect with detection_type='embedding' — "
+                "embedding frames have no visual output to render."
+            )
         logger.info(
             "filter_huggingface_vision loaded detection_type=%s model_id=%s revision=%s",
             detection_type,
@@ -391,6 +427,20 @@ class FilterHuggingfaceVision(Filter):
                 continue
 
             result = self._backend.run(image, width, height, config)
+            if isinstance(result, dict) and "embeddings" in result:
+                _task = "embedding"
+                _detection_type = "embedding"
+                payload = {
+                    "detection_type": _detection_type,
+                    "task": _task,
+                    "model": {"id": model_id, "revision": self._revision},
+                }
+                if not hasattr(frame, "data"):
+                    frame.data = {}
+                frame.data.setdefault("meta", {})
+                _apply_meta(frame.data["meta"], payload, config)
+                frame.data.update(result["embeddings"])
+                continue
             if isinstance(result, dict) and "classifications" in result:
                 _task = "image-classification"
                 _detection_type = "image-classification"
@@ -418,9 +468,7 @@ class FilterHuggingfaceVision(Filter):
                 }
             if not hasattr(frame, "data"):
                 frame.data = {}
-            # Meta format: for detection -> detections, detection_confidence; for classification -> classification only (no detections)
-            if "meta" not in frame.data:
-                frame.data["meta"] = {}
+            frame.data.setdefault("meta", {})
             _apply_meta(frame.data["meta"], payload, config)
 
             if main_frame_payload is None:
