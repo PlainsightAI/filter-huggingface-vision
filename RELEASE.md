@@ -3,6 +3,25 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.0 - 2026-04-01
+
+### Added
+- Embedding extraction backend (`detection_type="embedding"`) — model-agnostic penultimate-layer feature extraction using PyTorch forward hooks. Works with any HuggingFace Transformers vision model (`AutoModel`, `AutoModelForImageClassification`, `AutoModelForObjectDetection`, etc.) and timm models via `model_loader` config.
+- Exemplar distance computation: optional L2 distance to closest reference embedding for similarity-based anomaly detection (`exemplar_embeddings_path`, `output_distances`).
+- New config options: `model_loader`, `exemplar_embeddings_path`, `output_embeddings`, `output_distances`.
+- `scripts/generate_exemplars.py` — offline script to extract exemplar embeddings from reference images into `.npz`.
+- Embedding section in `docs/supported-models.md` with example model IDs, config, and output format.
+- Comprehensive test suite for embedding backend (`tests/test_embedding.py`).
+
+### Changed
+- Updated README, `docs/overview.md`, and `docs/supported-models.md` with embedding extraction documentation.
+- Backend base class (`VisionBackend.run()`) documents third return type for embeddings.
+- Filter `process()` writes embedding results to `frame.data` directly (not nested under `meta`).
+- Simplified `pyproject.toml` uv index config (marked openfilter index as explicit).
+
+### Fixed
+- `draw_visualization` warning emitted once at setup instead of per frame when used with unsupported detection types.
+
 ## v0.3.2 - 2026-03-14
 ### Fixed
 - Fixed `ModuleNotFoundError: No module named 'filter_huggingface_vision.backends'` caused by `pyproject.toml` excluding sub-packages from the built wheel. Switched from explicit package list to setuptools auto-discovery.
