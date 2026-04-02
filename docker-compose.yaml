@@ -21,7 +21,7 @@ services:
       - filter-network
 
   filter_huggingface_vision:
-    image: plainsightai/openfilter-huggingface-vision:0.3.0
+    image: plainsightai/openfilter-huggingface-vision:0.4.0
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: filter_huggingface_vision
