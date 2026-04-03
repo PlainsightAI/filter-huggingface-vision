@@ -3,6 +3,11 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.1 - 2026-04-03
+
+### Fixed
+- Rebuild with openfilter v0.1.27 which removes eager imports from `filters/__init__.py` that crashed containers without optional dependencies (e.g. PyAV).
+
 ## v0.4.0 - 2026-04-01
 
 ### Added
