@@ -20,13 +20,17 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     INSTALL_VER="$(printf '%s' "$INSTALL_VER" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
     pip install --no-cache-dir --upgrade pip && \
     if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-      pip install --no-cache-dir torch==2.9.1+cu128 \
+      pip install --no-cache-dir torch==2.9.1+cu128 torchvision==0.24.1 \
         --extra-index-url https://download.pytorch.org/whl/cu128; \
+      printf '%s\n' "torch==2.9.1+cu128" "torchvision==0.24.1" > /tmp/pip-constraints.txt; \
     else \
-      pip install --no-cache-dir torch==2.9.1; \
+      pip install --no-cache-dir torch==2.9.1 torchvision==0.24.1; \
+      printf '%s\n' "torch==2.9.1" "torchvision==0.24.1" > /tmp/pip-constraints.txt; \
     fi && \
     pip install --no-cache-dir \
+    -c /tmp/pip-constraints.txt \
     --index-url https://python.openfilter.io/simple \
+    --extra-index-url https://download.pytorch.org/whl/cu128 \
     --extra-index-url https://pypi.org/simple \
     "filter-huggingface-vision==${INSTALL_VER}"
 
