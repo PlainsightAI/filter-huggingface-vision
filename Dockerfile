@@ -8,6 +8,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETPLATFORM
+# Bump these together when upgrading PyTorch; used for install, constraints, and CUDA wheel index path.
+ARG TORCH_VERSION=2.9.1
+ARG TORCHVISION_VERSION=0.24.1
+ARG CUDA_SUFFIX=cu128
 # Optional: pin the wheel version for local smoke tests before that release exists on PyPI (e.g. --build-arg FILTER_PKG_VERSION_OVERRIDE=0.4.1).
 ARG FILTER_PKG_VERSION_OVERRIDE=
 
@@ -18,21 +22,26 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     [ -n "$PKG_VERSION" ] || { echo "VERSION file is empty"; exit 1; }; \
     INSTALL_VER="${FILTER_PKG_VERSION_OVERRIDE:-$PKG_VERSION}"; \
     INSTALL_VER="$(printf '%s' "$INSTALL_VER" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
+    [ -n "$INSTALL_VER" ] || { echo "filter package version is empty after normalization; check VERSION and FILTER_PKG_VERSION_OVERRIDE"; exit 1; }; \
     pip install --no-cache-dir --upgrade pip && \
     if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-      pip install --no-cache-dir torch==2.9.1+cu128 torchvision==0.24.1 \
-        --extra-index-url https://download.pytorch.org/whl/cu128; \
-      printf '%s\n' "torch==2.9.1+cu128" "torchvision==0.24.1" > /tmp/pip-constraints.txt; \
+      echo "Installing CUDA ${CUDA_SUFFIX} PyTorch (${TORCH_VERSION}+${CUDA_SUFFIX}, torchvision ${TORCHVISION_VERSION})..."; \
+      pip install --no-cache-dir "torch==${TORCH_VERSION}+${CUDA_SUFFIX}" "torchvision==${TORCHVISION_VERSION}" \
+        --extra-index-url "https://download.pytorch.org/whl/${CUDA_SUFFIX}"; \
+      printf '%s\n' "torch==${TORCH_VERSION}+${CUDA_SUFFIX}" "torchvision==${TORCHVISION_VERSION}" > /tmp/pip-constraints.txt; \
+      PYTORCH_EXTRA="--extra-index-url https://download.pytorch.org/whl/${CUDA_SUFFIX}"; \
     else \
-      pip install --no-cache-dir torch==2.9.1 torchvision==0.24.1; \
-      printf '%s\n' "torch==2.9.1" "torchvision==0.24.1" > /tmp/pip-constraints.txt; \
+      echo "WARNING: Non-amd64 or unset TARGETPLATFORM='${TARGETPLATFORM}' — installing CPU-only torch"; \
+      pip install --no-cache-dir "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}"; \
+      printf '%s\n' "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" > /tmp/pip-constraints.txt; \
+      PYTORCH_EXTRA=""; \
     fi && \
     pip install --no-cache-dir \
     -c /tmp/pip-constraints.txt \
     --index-url https://python.openfilter.io/simple \
-    --extra-index-url https://download.pytorch.org/whl/cu128 \
+    $PYTORCH_EXTRA \
     --extra-index-url https://pypi.org/simple \
-    "filter-huggingface-vision==${INSTALL_VER}"
+    "filter-huggingface-vision==$${INSTALL_VER}"
 
 FROM python:3.13-slim
 
