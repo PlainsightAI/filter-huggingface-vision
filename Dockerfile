@@ -7,12 +7,20 @@ RUN apt-get update \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+ARG TARGETPLATFORM
+
 RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     set -eux; \
     RAW="$(head -n1 /tmp/VERSION)"; \
     PKG_VERSION="$(printf '%s' "$RAW" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
     [ -n "$PKG_VERSION" ] || { echo "VERSION file is empty"; exit 1; }; \
     pip install --no-cache-dir --upgrade pip && \
+    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+      pip install --no-cache-dir torch==2.9.1+cu128 \
+        --extra-index-url https://download.pytorch.org/whl/cu128; \
+    else \
+      pip install --no-cache-dir torch==2.9.1; \
+    fi && \
     pip install --no-cache-dir \
     --index-url https://python.openfilter.io/simple \
     --extra-index-url https://pypi.org/simple \

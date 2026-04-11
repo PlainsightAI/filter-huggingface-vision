@@ -368,6 +368,7 @@ make test-coverage
 ### CUDA / device
 - Set `device` to `"cpu"` if no GPU is available.
 - For GPU, use `device="cuda"` or `device=0` (and ensure PyTorch is built with CUDA).
+- **Official Docker image (`linux/amd64`):** the published `plainsightai/openfilter-huggingface-vision` image installs PyTorch **CUDA 12.8** (`2.9.1+cu128`), matching hosts whose NVIDIA driver supports up to CUDA 12.8. A local `pip install` from PyPI still uses whatever CPU/CUDA wheels you choose; only the Docker build pins CUDA.
 
 ### No detections in frame
 - Check that the input frame provides an image via `frame.rw_bgr.image` or `frame.data[input_topic]`.

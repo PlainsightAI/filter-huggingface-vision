@@ -3,6 +3,14 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.2 - 2026-04-10
+
+### Fixed
+- Docker image: pre-install PyTorch `2.9.1+cu128` on `linux/amd64` before installing the filter package so pip does not resolve a CUDA 13-only wheel incompatible with current production GPUs (driver cap at CUDA 12.8). `linux/arm64` builds install `torch==2.9.1` (no `+cu128` wheel on that platform).
+
+### Changed
+- Require `torch>=2.9.1` in `pyproject.toml` (PyPI-safe; the CUDA 12.8 wheel remains Docker-only).
+
 ## v0.4.1 - 2026-04-03
 
 ### Fixed
