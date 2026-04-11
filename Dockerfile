@@ -8,12 +8,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETPLATFORM
+# Optional: pin the wheel version for local smoke tests before that release exists on PyPI (e.g. --build-arg FILTER_PKG_VERSION_OVERRIDE=0.4.1).
+ARG FILTER_PKG_VERSION_OVERRIDE=
 
 RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     set -eux; \
     RAW="$(head -n1 /tmp/VERSION)"; \
     PKG_VERSION="$(printf '%s' "$RAW" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
     [ -n "$PKG_VERSION" ] || { echo "VERSION file is empty"; exit 1; }; \
+    INSTALL_VER="${FILTER_PKG_VERSION_OVERRIDE:-$PKG_VERSION}"; \
+    INSTALL_VER="$(printf '%s' "$INSTALL_VER" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
     pip install --no-cache-dir --upgrade pip && \
     if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
       pip install --no-cache-dir torch==2.9.1+cu128 \
@@ -24,7 +28,7 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     pip install --no-cache-dir \
     --index-url https://python.openfilter.io/simple \
     --extra-index-url https://pypi.org/simple \
-    "filter-huggingface-vision==${PKG_VERSION}"
+    "filter-huggingface-vision==${INSTALL_VER}"
 
 FROM python:3.13-slim
 
