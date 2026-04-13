@@ -7,7 +7,10 @@ RUN apt-get update \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Prefer buildx so TARGETPLATFORM is set (e.g. docker buildx build --platform linux/amd64). Plain docker build
+# may leave TARGETPLATFORM empty; we fall back to BUILDPLATFORM for branch selection only.
 ARG TARGETPLATFORM
+ARG BUILDPLATFORM
 # Bump these together when upgrading PyTorch; used for install, constraints, and CUDA wheel index path.
 ARG TORCH_VERSION=2.9.1
 ARG TORCHVISION_VERSION=0.24.1
@@ -17,6 +20,8 @@ ARG FILTER_PKG_VERSION_OVERRIDE=
 
 RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     set -eux; \
+    TP="${TARGETPLATFORM}"; BP="${BUILDPLATFORM}"; \
+    if [ -z "$$TP" ]; then PLAT="$$BP"; else PLAT="$$TP"; fi; \
     RAW="$(head -n1 /tmp/VERSION)"; \
     PKG_VERSION="$(printf '%s' "$RAW" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
     [ -n "$PKG_VERSION" ] || { echo "VERSION file is empty"; exit 1; }; \
@@ -24,14 +29,14 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     INSTALL_VER="$(printf '%s' "$INSTALL_VER" | tr -d ' \t\r\n' | sed 's/^[vV]//')"; \
     [ -n "$INSTALL_VER" ] || { echo "filter package version is empty after normalization; check VERSION and FILTER_PKG_VERSION_OVERRIDE"; exit 1; }; \
     pip install --no-cache-dir --upgrade pip && \
-    if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-      echo "Installing CUDA ${CUDA_SUFFIX} PyTorch (${TORCH_VERSION}+${CUDA_SUFFIX}, torchvision ${TORCHVISION_VERSION})..."; \
-      pip install --no-cache-dir "torch==${TORCH_VERSION}+${CUDA_SUFFIX}" "torchvision==${TORCHVISION_VERSION}" \
+    if [ "$$PLAT" = "linux/amd64" ]; then \
+      echo "Installing CUDA ${CUDA_SUFFIX} PyTorch (${TORCH_VERSION}+${CUDA_SUFFIX}, torchvision ${TORCHVISION_VERSION}+${CUDA_SUFFIX})..."; \
+      pip install --no-cache-dir "torch==${TORCH_VERSION}+${CUDA_SUFFIX}" "torchvision==${TORCHVISION_VERSION}+${CUDA_SUFFIX}" \
         --extra-index-url "https://download.pytorch.org/whl/${CUDA_SUFFIX}"; \
-      printf '%s\n' "torch==${TORCH_VERSION}+${CUDA_SUFFIX}" "torchvision==${TORCHVISION_VERSION}" > /tmp/pip-constraints.txt; \
+      printf '%s\n' "torch==${TORCH_VERSION}+${CUDA_SUFFIX}" "torchvision==${TORCHVISION_VERSION}+${CUDA_SUFFIX}" > /tmp/pip-constraints.txt; \
       PYTORCH_EXTRA="--extra-index-url https://download.pytorch.org/whl/${CUDA_SUFFIX}"; \
     else \
-      echo "WARNING: Non-amd64 or unset TARGETPLATFORM='${TARGETPLATFORM}' — installing CPU-only torch"; \
+      echo "WARNING: effective platform is not linux/amd64 (PLAT=$$PLAT, TARGETPLATFORM was $$TP, BUILDPLATFORM was $$BP) — installing CPU-only torch"; \
       pip install --no-cache-dir "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}"; \
       printf '%s\n' "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" > /tmp/pip-constraints.txt; \
       PYTORCH_EXTRA=""; \
@@ -41,7 +46,10 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     --index-url https://python.openfilter.io/simple \
     $PYTORCH_EXTRA \
     --extra-index-url https://pypi.org/simple \
-    "filter-huggingface-vision==${INSTALL_VER}"
+    "filter-huggingface-vision==${INSTALL_VER}" && \
+    if [ "$$PLAT" = "linux/amd64" ]; then \
+      python -c "import torch; assert torch.version.cuda is not None, 'CUDA torch not installed'"; \
+    fi
 
 FROM python:3.13-slim
 
