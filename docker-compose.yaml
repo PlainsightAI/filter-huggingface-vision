@@ -21,7 +21,8 @@ services:
       - filter-network
 
   filter_huggingface_vision:
-    image: plainsightai/openfilter-huggingface-vision:0.4.0
+    # v0.4.1 was PyPI-only; compose tracks published images (0.4.0 → 0.4.2).
+    image: plainsightai/openfilter-huggingface-vision:0.4.2
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: filter_huggingface_vision

@@ -3,6 +3,14 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.2 - 2026-04-10
+
+### Fixed
+- Docker image: pre-install a pinned **torch + torchvision** stack (`2.9.1+cu128` on `linux/amd64`) and apply **pip constraints** on the final install so transitive dependencies cannot upgrade PyTorch to a CUDA 13 line incompatible with current production GPUs (driver cap at CUDA 12.8). `linux/arm64` builds use the PyPI CPU/default stack (e.g. `2.9.1+cpu`).
+
+### Changed
+- Require `torch>=2.9.1` in `pyproject.toml` (PyPI-safe; the CUDA 12.8 wheel remains Docker-only).
+
 ## v0.4.1 - 2026-04-03
 
 ### Fixed

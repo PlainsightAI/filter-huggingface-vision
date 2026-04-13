@@ -8,6 +8,8 @@ The **Huggingface Vision** filter adds Hugging Face–based object detection, im
 
 The content of this document will be published to production documentation on every production release.
 
+The **official Docker image** on `linux/amd64` ships PyTorch built for **CUDA 12.8** (with matching `torchvision` and install-time **pip constraints** so dependencies cannot bump the stack to CUDA 13); local PyPI installs are unchanged.
+
 ### ✨ Features
 
 - **Supported APIs** (each supports all compatible Hub models):
