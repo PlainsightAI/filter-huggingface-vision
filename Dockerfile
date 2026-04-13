@@ -41,7 +41,7 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
     --index-url https://python.openfilter.io/simple \
     $PYTORCH_EXTRA \
     --extra-index-url https://pypi.org/simple \
-    "filter-huggingface-vision==$${INSTALL_VER}"
+    "filter-huggingface-vision==${INSTALL_VER}"
 
 FROM python:3.13-slim
 
