@@ -156,6 +156,25 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
         self.assertIn("org/model", msg)
         self.assertIn("not found", msg)
 
+    def test_repository_not_found_on_model_download_gives_actionable_message(self):
+        from huggingface_hub import errors as _hf_errors
+
+        exc = self._make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=MagicMock(),
+        ):
+            with patch(
+                "transformers.AutoModelForObjectDetection.from_pretrained",
+                side_effect=exc,
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("org/model", msg)
+        self.assertIn("not found", msg)
+        self.assertIs(ctx.exception.__cause__, exc)
+
     def test_revision_not_found_error_message(self):
         from huggingface_hub import errors as _hf_errors
 
