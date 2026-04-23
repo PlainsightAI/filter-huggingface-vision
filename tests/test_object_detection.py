@@ -9,6 +9,7 @@ from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
 )
+from tests._hf_test_utils import make_hf_error
 
 
 class TestNormalizeDetections(unittest.TestCase):
@@ -140,15 +141,10 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
 
     # --- HuggingFace Hub error branches ---
 
-    def _make_hf_error(self, cls, message):
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        return cls(message, response=mock_response)
-
     def test_repository_not_found_error_message(self):
         from huggingface_hub import errors as _hf_errors
 
-        exc = self._make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
+        exc = make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -159,7 +155,7 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
     def test_repository_not_found_on_model_download_gives_actionable_message(self):
         from huggingface_hub import errors as _hf_errors
 
-        exc = self._make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
+        exc = make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
         with patch(
             "transformers.AutoImageProcessor.from_pretrained",
             return_value=MagicMock(),
@@ -178,7 +174,7 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
     def test_revision_not_found_error_message(self):
         from huggingface_hub import errors as _hf_errors
 
-        exc = self._make_hf_error(_hf_errors.RevisionNotFoundError, "abc123")
+        exc = make_hf_error(_hf_errors.RevisionNotFoundError, "abc123")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -189,7 +185,7 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
     def test_gated_repo_error_message(self):
         from huggingface_hub import errors as _hf_errors
 
-        exc = self._make_hf_error(_hf_errors.GatedRepoError, "org/model")
+        exc = make_hf_error(_hf_errors.GatedRepoError, "org/model")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -199,7 +195,7 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
     def test_hf_hub_http_error_includes_repr(self):
         from huggingface_hub import errors as _hf_errors
 
-        exc = self._make_hf_error(_hf_errors.HfHubHTTPError, "503 Service Unavailable")
+        exc = make_hf_error(_hf_errors.HfHubHTTPError, "503 Service Unavailable")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -217,7 +213,7 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
         msg = str(ctx.exception)
-        self.assertIn("object-detection", msg)
+        self.assertIn("object detection", msg)
         self.assertIn("unrecognized architecture", msg)
 
     # --- Fallback branch ---
