@@ -11,7 +11,7 @@ from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
 )
-from tests._hf_test_utils import make_hf_error
+from _hf_test_utils import make_hf_error
 
 
 class TestLogitsToClassifications(unittest.TestCase):
