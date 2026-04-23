@@ -117,7 +117,7 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
 
         ObjectDetectionBackend().load(self._CONFIG)
 
-    # --- ImportError branches ---
+    # --- ImportError branches (S4 allowlist) ---
 
     def test_timm_import_error_gives_actionable_message(self):
         with patch(
@@ -129,7 +129,17 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
         self.assertIn("timm", str(ctx.exception))
         self.assertIn("pip install timm", str(ctx.exception))
 
-    def test_non_timm_import_error_is_reraised_unchanged(self):
+    def test_sentencepiece_import_error_gives_actionable_message(self):
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=ImportError("No module named 'sentencepiece'"),
+        ):
+            with self.assertRaises(ImportError) as ctx:
+                self._load_backend()
+        self.assertIn("sentencepiece", str(ctx.exception))
+        self.assertIn("pip install sentencepiece", str(ctx.exception))
+
+    def test_unknown_import_error_is_reraised_unchanged(self):
         original = ImportError("No module named 'some_other_dep'")
         with patch(
             "transformers.AutoImageProcessor.from_pretrained",
@@ -142,9 +152,9 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
     # --- HuggingFace Hub error branches ---
 
     def test_repository_not_found_error_message(self):
-        from huggingface_hub import errors as _hf_errors
+        from huggingface_hub.utils import RepositoryNotFoundError
 
-        exc = make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
+        exc = make_hf_error(RepositoryNotFoundError, "org/model")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -153,9 +163,9 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
         self.assertIn("not found", msg)
 
     def test_repository_not_found_on_model_download_gives_actionable_message(self):
-        from huggingface_hub import errors as _hf_errors
+        from huggingface_hub.utils import RepositoryNotFoundError
 
-        exc = make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
+        exc = make_hf_error(RepositoryNotFoundError, "org/model")
         with patch(
             "transformers.AutoImageProcessor.from_pretrained",
             return_value=MagicMock(),
@@ -172,9 +182,9 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
         self.assertIs(ctx.exception.__cause__, exc)
 
     def test_revision_not_found_error_message(self):
-        from huggingface_hub import errors as _hf_errors
+        from huggingface_hub.utils import RevisionNotFoundError
 
-        exc = make_hf_error(_hf_errors.RevisionNotFoundError, "abc123")
+        exc = make_hf_error(RevisionNotFoundError, "abc123")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -183,25 +193,59 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
         self.assertIn("Revision", msg)
 
     def test_gated_repo_error_message(self):
-        from huggingface_hub import errors as _hf_errors
+        from huggingface_hub.utils import GatedRepoError
 
-        exc = make_hf_error(_hf_errors.GatedRepoError, "org/model")
+        exc = make_hf_error(GatedRepoError, "org/model")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
         msg = str(ctx.exception)
         self.assertIn("license", msg)
+        self.assertIn("HF_TOKEN", msg)
 
     def test_hf_hub_http_error_includes_repr(self):
-        from huggingface_hub import errors as _hf_errors
+        from huggingface_hub.utils import HfHubHTTPError
 
-        exc = make_hf_error(_hf_errors.HfHubHTTPError, "503 Service Unavailable")
+        exc = make_hf_error(HfHubHTTPError, "503 Service Unavailable")
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
         msg = str(ctx.exception)
         self.assertIn("org/model", msg)
         self.assertIn("HuggingFace Hub", msg)
+
+    def test_hf_hub_http_401_hints_at_hf_token(self):
+        from huggingface_hub.utils import HfHubHTTPError
+
+        exc = make_hf_error(HfHubHTTPError, "401 Unauthorized", status_code=401)
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("HF_TOKEN", msg)
+        self.assertIn("gated", msg)
+
+    def test_local_entry_not_found_error_message(self):
+        from huggingface_hub.utils import LocalEntryNotFoundError
+
+        exc = LocalEntryNotFoundError("cache miss for org/model")
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("cache", msg)
+        self.assertIn("org/model", msg)
+
+    def test_entry_not_found_error_message(self):
+        from huggingface_hub.utils import EntryNotFoundError
+
+        exc = EntryNotFoundError("entry not found for org/model")
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("cache", msg)
+        self.assertIn("org/model", msg)
 
     # --- ValueError / config-parse branch ---
 
