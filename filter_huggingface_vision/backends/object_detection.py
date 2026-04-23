@@ -2,6 +2,8 @@
 
 import logging
 
+from huggingface_hub import errors as _hf_errors
+
 from filter_huggingface_vision.utils import get_config_value, resolve_device
 
 from .base import VisionBackend
@@ -93,10 +95,34 @@ class ObjectDetectionBackend(VisionBackend):
                     "Install it with: pip install timm"
                 ) from e
             raise
+        except _hf_errors.GatedRepoError as e:
+            raise RuntimeError(
+                f"Access to '{model_id}' requires accepting its license on the Hub. "
+                "Accept it with an authenticated token."
+            ) from e
+        except _hf_errors.RepositoryNotFoundError as e:
+            raise RuntimeError(
+                f"HuggingFace repository '{model_id}' not found. "
+                "Check the model ID or your HF_TOKEN if the repo is gated."
+            ) from e
+        except _hf_errors.RevisionNotFoundError as e:
+            raise RuntimeError(
+                f"Revision '{revision}' not found in '{model_id}'. "
+                "Check the revision (commit SHA, tag, or branch)."
+            ) from e
+        except _hf_errors.HfHubHTTPError as e:
+            raise RuntimeError(
+                f"Could not download '{model_id}@{revision}' from HuggingFace Hub: {repr(e)}"
+            ) from e
+        except ValueError as e:
+            raise RuntimeError(
+                f"Model '{model_id}' could not be loaded as an object-detection model "
+                "(AutoImageProcessor + AutoModelForObjectDetection). "
+                f"Check that the model's architecture exposes an object-detection head: {repr(e)}"
+            ) from e
         except Exception as e:
             raise RuntimeError(
-                f"Model {model_id} (revision={revision}) is not compatible with AutoImageProcessor + AutoModelForObjectDetection. "
-                "Use a model supported by the Transformers object-detection API, or enable fallback when available."
+                f"Unexpected failure loading '{model_id}@{revision}' for object detection: {repr(e)}"
             ) from e
 
         self._model = self._model.to(self._device)

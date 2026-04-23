@@ -2,7 +2,7 @@
 """Tests for image classification task (no model download)."""
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from filter_huggingface_vision.backends.image_classification import (
     _logits_to_classifications,
@@ -203,6 +203,129 @@ class TestImageClassificationConfig(unittest.TestCase):
                     top_k=1001,
                 )
             )
+
+
+class TestImageClassificationBackendLoadErrors(unittest.TestCase):
+    """Unit tests for structured error messages on ImageClassificationBackend.load() failures."""
+
+    _CONFIG = {"model_id": "org/model", "revision": "abc123", "device": "cpu"}
+
+    def _load_backend(self):
+        from filter_huggingface_vision.backends.image_classification import (
+            ImageClassificationBackend,
+        )
+
+        ImageClassificationBackend().load(self._CONFIG)
+
+    # --- ImportError branches ---
+
+    def test_timm_import_error_gives_actionable_message(self):
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=ImportError("No module named 'timm'"),
+        ):
+            with self.assertRaises(ImportError) as ctx:
+                self._load_backend()
+        self.assertIn("timm", str(ctx.exception))
+        self.assertIn("pip install timm", str(ctx.exception))
+
+    def test_non_timm_import_error_is_reraised_unchanged(self):
+        original = ImportError("No module named 'some_other_dep'")
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=original,
+        ):
+            with self.assertRaises(ImportError) as ctx:
+                self._load_backend()
+        self.assertIs(ctx.exception, original)
+
+    # --- HuggingFace Hub error branches ---
+
+    def _make_hf_error(self, cls, message):
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        return cls(message, response=mock_response)
+
+    def test_repository_not_found_error_message(self):
+        from huggingface_hub import errors as _hf_errors
+
+        exc = self._make_hf_error(_hf_errors.RepositoryNotFoundError, "org/model")
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("org/model", msg)
+        self.assertIn("not found", msg)
+
+    def test_revision_not_found_error_message(self):
+        from huggingface_hub import errors as _hf_errors
+
+        exc = self._make_hf_error(_hf_errors.RevisionNotFoundError, "abc123")
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("abc123", msg)
+        self.assertIn("Revision", msg)
+
+    def test_gated_repo_error_message(self):
+        from huggingface_hub import errors as _hf_errors
+
+        exc = self._make_hf_error(_hf_errors.GatedRepoError, "org/model")
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("license", msg)
+
+    def test_hf_hub_http_error_includes_repr(self):
+        from huggingface_hub import errors as _hf_errors
+
+        exc = self._make_hf_error(_hf_errors.HfHubHTTPError, "503 Service Unavailable")
+        with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("org/model", msg)
+        self.assertIn("HuggingFace Hub", msg)
+
+    # --- ValueError / config-parse branch ---
+
+    def test_value_error_gives_incompatibility_message_with_repr(self):
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=ValueError("unrecognized architecture"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("image-classification", msg)
+        self.assertIn("unrecognized architecture", msg)
+
+    # --- Fallback branch ---
+
+    def test_unexpected_exception_includes_repr(self):
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=OSError("disk full"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("Unexpected", msg)
+        self.assertIn("disk full", msg)
+
+    # --- Chained cause is preserved ---
+
+    def test_original_cause_is_chained(self):
+        original = ValueError("root cause")
+        with patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=original,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        self.assertIs(ctx.exception.__cause__, original)
 
 
 if __name__ == "__main__":
