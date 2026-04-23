@@ -7,14 +7,14 @@
 
 services:
   video_in:
-    image: plainsightai/openfilter-video-inopenfilter-huggingface-vision:0.4.4
+    image: plainsightai/openfilter-video-in:0.1.20
     environment:
-      LOG_LEVEL: ${LOG_LEVELopenfilter-huggingface-vision:0.4.4}
+      LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: VideoIn
       FILTER_SOURCES: file:///filter_example_video.mp4!loop
-      FILTER_OUTPUTS: tcp://*openfilter-huggingface-vision:0.4.4
+      FILTER_OUTPUTS: tcp://*:5550
     volumes:
-      - ./filter_example_video.mp4:/filter_example_video.mp4openfilter-huggingface-vision:0.4.4
+      - ./filter_example_video.mp4:/filter_example_video.mp4:ro
       - ./cache:/app/cache
       - ./telemetry:/app/telemetry
     networks:
@@ -22,19 +22,19 @@ services:
 
   filter_huggingface_vision:
     # v0.4.1 was PyPI-only; compose tracks published images (0.4.0 → 0.4.2).
-    image: plainsightai/openfilter-huggingface-vision:0.4.4
+    image: plainsightai/openfilter-huggingface-vision:0.4.5
     environment:
-      LOG_LEVEL: ${LOG_LEVELopenfilter-huggingface-vision:0.4.4}
+      LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: filter_huggingface_vision
-      FILTER_SOURCES: tcp://video_inopenfilter-huggingface-vision:0.4.4
-      FILTER_OUTPUTS: tcp://*openfilter-huggingface-vision:0.4.4
+      FILTER_SOURCES: tcp://video_in:5550
+      FILTER_OUTPUTS: tcp://*:5552
       FILTER_MQ_LOG: pretty
       # Required (set in .env or here)
-      FILTER_MODEL_ID: ${MODEL_IDopenfilter-huggingface-vision:0.4.4/rtdetr_r50vd}
-      FILTER_REVISION: ${REVISIONopenfilter-huggingface-vision:0.4.4}
+      FILTER_MODEL_ID: ${MODEL_ID:-PekingU/rtdetr_r50vd}
+      FILTER_REVISION: ${REVISION:-main}
       # Optional
-      FILTER_THRESHOLD: ${THRESHOLDopenfilter-huggingface-vision:0.4.4}
-      FILTER_DRAW_VISUALIZATION: ${DRAW_VISUALIZATIONopenfilter-huggingface-vision:0.4.4}
+      FILTER_THRESHOLD: ${THRESHOLD:-0.3}
+      FILTER_DRAW_VISUALIZATION: ${DRAW_VISUALIZATION:-true}
       FILTER_VISUALIZATION_TOPIC: viz
 
     # WARNING! WARNING! WARNING! If you do not have an Nvidia GPU then comment this section out!!!
@@ -54,18 +54,18 @@ services:
       - filter-network
 
   webvis:
-    image: plainsightai/openfilter-webvisopenfilter-huggingface-vision:0.4.4
+    image: plainsightai/openfilter-webvis:0.1.20
     environment:
-      LOG_LEVEL: ${LOG_LEVELopenfilter-huggingface-vision:0.4.4}
+      LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: webvis
       # Subscribe to main and viz (detection overlay) from filter
-      FILTER_SOURCES: tcp://filter_huggingface_visionopenfilter-huggingface-vision:0.4.4;main,tcp://filter_huggingface_visionopenfilter-huggingface-vision:0.4.4;viz
-      FILTER_PORT: ${PORTopenfilter-huggingface-vision:0.4.4}
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main,tcp://filter_huggingface_vision:5552;viz
+      FILTER_PORT: ${PORT:-8010}
     volumes:
       - ./cache:/app/cache
       - ./telemetry:/app/telemetry
     ports:
-      - "${PORTopenfilter-huggingface-vision:0.4.4}:${PORTopenfilter-huggingface-vision:0.4.4}"
+      - "${PORT:-8010}:${PORT:-8010}"
     networks:
       - filter-network
 
