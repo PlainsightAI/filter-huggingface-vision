@@ -4,6 +4,7 @@ import logging
 
 from filter_huggingface_vision.utils import get_config_value, resolve_device
 
+from ._hf_load_errors import hf_load_error_handler
 from .base import VisionBackend
 
 logger = logging.getLogger(__name__)
@@ -69,12 +70,13 @@ class OwlVitBackend(VisionBackend):
         model_id = get_config_value(config, "model_id")
         revision = (get_config_value(config, "revision") or "").strip() or "main"
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        self._processor = OwlViTProcessor.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False
-        )
-        self._model = OwlViTForObjectDetection.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False
-        )
+        with hf_load_error_handler(model_id, revision, "zero-shot detection (owl-vit)"):
+            self._processor = OwlViTProcessor.from_pretrained(
+                model_id, revision=revision, trust_remote_code=False
+            )
+            self._model = OwlViTForObjectDetection.from_pretrained(
+                model_id, revision=revision, trust_remote_code=False
+            )
         self._model = self._model.to(self._device)
         self._model.eval()
         self._revision = revision
