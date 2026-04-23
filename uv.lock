@@ -724,7 +724,7 @@ requires-dist = [
     { name = "flake8", marker = "extra == 'dev'", specifier = "==7.3.0" },
     { name = "fsspec", specifier = ">=2023.1.0" },
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2023.1.0" },
-    { name = "huggingface-hub" },
+    { name = "huggingface-hub", specifier = ">=0.23" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==7.0.0" },
     { name = "openfilter", extras = ["all"], specifier = ">=1.1.2" },
     { name = "pillow" },
