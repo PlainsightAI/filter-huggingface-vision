@@ -3,6 +3,15 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.5 - 2026-04-23
+
+### Changed
+- Split the generic "not compatible" catch-all in both `ObjectDetectionBackend.load()` and `ImageClassificationBackend.load()` into targeted exception branches for `ImportError` (timm missing), `GatedRepoError`, `RepositoryNotFoundError`, `RevisionNotFoundError`, `HfHubHTTPError`, `ValueError`, and a generic fallback — every message now includes `repr(e)` and preserves the original traceback via `raise ... from e`.
+- Extracted the shared exception handling into `filter_huggingface_vision/backends/_hf_load_errors.py` as a `hf_load_error_handler` context manager so future `huggingface_hub` error types only need to be added in one place.
+- Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util).
+- Synced `uv.lock` with `pyproject.toml`'s existing `openfilter[all]>=0.1.27` pin.
+
+
 ## v0.4.4 - 2026-04-20
 
 ### Changed
