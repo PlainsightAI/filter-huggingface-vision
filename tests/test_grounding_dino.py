@@ -2,6 +2,7 @@
 """Tests for open-vocabulary object detection task (Grounding DINO, no model download)."""
 
 import unittest
+from unittest.mock import patch
 
 from filter_huggingface_vision.backends.grounding_dino import (
     _normalize_results as _normalize_results_grounding,
@@ -11,6 +12,7 @@ from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
 )
+from _hf_test_utils import make_hf_error
 from filter_huggingface_vision.utils import as_bool
 
 
@@ -200,6 +202,51 @@ class TestGroundingDinoConfig(unittest.TestCase):
     def test_resolve_grounding_labels_defaults_off(self):
         cfg = self._grounding_cfg()
         self.assertIs(as_bool(getattr(cfg, "resolve_grounding_labels"), False), False)
+
+
+class TestGroundingDinoBackendLoadErrors(unittest.TestCase):
+    """Load-error surface for GroundingDinoBackend (mirrors object_detection / image_classification)."""
+
+    _CONFIG = {"model_id": "org/model", "revision": "abc123", "device": "cpu"}
+
+    def _load_backend(self):
+        from filter_huggingface_vision.backends.grounding_dino import (
+            GroundingDinoBackend,
+        )
+
+        GroundingDinoBackend().load(self._CONFIG)
+
+    def test_repository_not_found_error_message(self):
+        from huggingface_hub.utils import RepositoryNotFoundError
+
+        exc = make_hf_error(RepositoryNotFoundError, "org/model")
+        with patch("transformers.AutoProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("org/model", msg)
+        self.assertIn("not found", msg)
+        self.assertIs(ctx.exception.__cause__, exc)
+
+    def test_revision_not_found_error_message(self):
+        from huggingface_hub.utils import RevisionNotFoundError
+
+        exc = make_hf_error(RevisionNotFoundError, "abc123")
+        with patch("transformers.AutoProcessor.from_pretrained", side_effect=exc):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        self.assertIn("abc123", str(ctx.exception))
+
+    def test_value_error_is_wrapped(self):
+        with patch(
+            "transformers.AutoProcessor.from_pretrained",
+            side_effect=ValueError("unrecognized"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                self._load_backend()
+        msg = str(ctx.exception)
+        self.assertIn("org/model", msg)
+        self.assertIn("open-vocabulary detection (grounding-dino)", msg)
 
 
 if __name__ == "__main__":
