@@ -584,7 +584,7 @@ requires-dist = [
     { name = "flake8", marker = "extra == 'dev'", specifier = "==7.3.0" },
     { name = "huggingface-hub" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==7.0.0" },
-    { name = "openfilter", extras = ["all"], specifier = ">=0.1.26" },
+    { name = "openfilter", extras = ["all"], specifier = ">=0.1.27" },
     { name = "pillow" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.0.0" },
