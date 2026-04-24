@@ -33,8 +33,12 @@ def hf_load_error_handler(model_id: str, revision: str, task: str):
     - RepositoryNotFoundError and RevisionNotFoundError before HfHubHTTPError
       (both are subclasses).
     - (LocalEntryNotFoundError, EntryNotFoundError) before HfHubHTTPError
-      because they do NOT inherit from it and would otherwise fall through to
-      the generic fallback.
+      and before the `except ValueError` fallback: on huggingface-hub 0.23
+      (our declared floor, with the `requests` backbone) both ARE subclasses
+      of HfHubHTTPError, and LocalEntryNotFoundError is additionally a
+      subclass of ValueError, so any reorder would silently reroute them to
+      a less helpful branch. (Hub >=1.0 flattened the hierarchy; keeping the
+      order preserves correct behavior on both eras.)
     """
     try:
         yield
