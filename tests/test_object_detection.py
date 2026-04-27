@@ -212,7 +212,10 @@ class TestObjectDetectionBackendLoadErrors(unittest.TestCase):
                 self._load_backend()
         msg = str(ctx.exception)
         self.assertIn("org/model", msg)
-        self.assertIn("HuggingFace Hub", msg)
+        # The point of this test is the "includes_repr" guarantee: assert the
+        # full repr is present rather than a substring that happens to overlap
+        # with the surrounding human-readable copy.
+        self.assertIn(repr(exc), msg)
 
     def test_hf_hub_http_401_hints_at_hf_token(self):
         from huggingface_hub.utils import HfHubHTTPError
