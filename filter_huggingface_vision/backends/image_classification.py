@@ -4,6 +4,7 @@ import logging
 
 from filter_huggingface_vision.utils import get_config_value, resolve_device
 
+from ._hf_load_errors import hf_load_error_handler
 from .base import VisionBackend
 
 logger = logging.getLogger(__name__)
@@ -48,19 +49,13 @@ class ImageClassificationBackend(VisionBackend):
         if not revision:
             raise ValueError("revision is required and must be non-empty.")
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        try:
+        with hf_load_error_handler(model_id, revision, "image classification"):
             self._processor = AutoImageProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
             self._model = AutoModelForImageClassification.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
-        except Exception as e:
-            raise RuntimeError(
-                f"Model {model_id} (revision={revision}) is not compatible with "
-                "AutoImageProcessor + AutoModelForImageClassification. "
-                "Use a model supported by the Transformers image-classification API."
-            ) from e
 
         self._model = self._model.to(self._device)
         self._model.eval()

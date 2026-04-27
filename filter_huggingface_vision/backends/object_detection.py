@@ -4,6 +4,7 @@ import logging
 
 from filter_huggingface_vision.utils import get_config_value, resolve_device
 
+from ._hf_load_errors import hf_load_error_handler
 from .base import VisionBackend
 
 logger = logging.getLogger(__name__)
@@ -79,25 +80,13 @@ class ObjectDetectionBackend(VisionBackend):
         if not revision:
             raise ValueError("revision is required and must be non-empty.")
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        try:
+        with hf_load_error_handler(model_id, revision, "object detection"):
             self._processor = AutoImageProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
             self._model = AutoModelForObjectDetection.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
-        except ImportError as e:
-            if "timm" in str(e).lower():
-                raise ImportError(
-                    f"DETR/Conditional DETR models (e.g. {model_id}) require the timm library. "
-                    "Install it with: pip install timm"
-                ) from e
-            raise
-        except Exception as e:
-            raise RuntimeError(
-                f"Model {model_id} (revision={revision}) is not compatible with AutoImageProcessor + AutoModelForObjectDetection. "
-                "Use a model supported by the Transformers object-detection API, or enable fallback when available."
-            ) from e
 
         self._model = self._model.to(self._device)
         self._model.eval()

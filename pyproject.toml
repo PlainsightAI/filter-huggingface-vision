@@ -31,7 +31,7 @@ dependencies = [
   "timm",
   "sentencepiece",
   "pillow",
-  "huggingface-hub",
+  "huggingface-hub>=0.23",
   "python-dotenv",
 ]
 
@@ -47,6 +47,9 @@ dev = [
   "pytest==9.0.3",
   "pytest-cov==7.0.0",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["tests"]
 
 [tool.black]
 skip-string-normalization = true
