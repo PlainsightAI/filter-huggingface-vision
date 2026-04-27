@@ -1,29 +1,28 @@
-# v0.4.5
+# v0.4.6
 
 # Changelog
 Huggingface Vision filter release notes
 
 
-## v0.4.5 - 2026-04-23
-
-### Changed
-- Bump openfilter SDK, align CI workflow with shared release gate (source-paths)
-
-- Fix release workflow secret names: `PYPI_API_TOKEN` → `PLAINSIGHT_PYPI_TOKEN`, `DOCKERHUB_TOKEN` → `DOCKERHUB_ACCESS_TOKEN` (org-level secret names). Without this the PyPI / Docker Hub tokens resolved to empty and no package has been published since the migration.
-- Bump openfilter dependency to `>=0.1.30`.
-
 ## [Unreleased]
 
-## v0.4.5 - 2026-04-23
+## v0.4.6 - 2026-04-27
 
 ### Changed
-- Split the generic "not compatible" catch-all in both `ObjectDetectionBackend.load()` and `ImageClassificationBackend.load()` into targeted exception branches for `ImportError` (timm missing), `GatedRepoError`, `RepositoryNotFoundError`, `RevisionNotFoundError`, `HfHubHTTPError`, `ValueError`, and a generic fallback — every message now includes `repr(e)` and preserves the original traceback via `raise ... from e`.
+- Split the generic "not compatible" catch-all in both `ObjectDetectionBackend.load()` and `ImageClassificationBackend.load()` into targeted exception branches for `ImportError` (timm missing), `GatedRepoError`, `RepositoryNotFoundError`, `RevisionNotFoundError`, `HfHubHTTPError`, `ValueError`, and a generic fallback. Every message now includes `repr(e)` and preserves the original traceback via `raise ... from e`.
 - Extracted the shared exception handling into `filter_huggingface_vision/backends/_hf_load_errors.py` as a `hf_load_error_handler` context manager so future `huggingface_hub` error types only need to be added in one place.
 - Added `LocalEntryNotFoundError` / `EntryNotFoundError` coverage (offline or shared-cache race), 401-aware branch on `HfHubHTTPError` (with `HF_TOKEN` hint), and an allowlist of missing-dep hints (`timm`, `sentencepiece`, `detectron2`, `torchvision`).
 - Extended the same error-handling wrapper to `GroundingDinoBackend` and `OwlVitBackend` so every `from_pretrained` call in this filter produces the same actionable errors.
 - Pinned `huggingface-hub>=0.23` and switched the exception import to `huggingface_hub.utils` (stable across the whole supported range).
 - Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util); declared `pythonpath = ["tests"]` in `pyproject.toml` so the bare import is documented rather than implicit.
 - Synced `uv.lock` with `pyproject.toml`'s existing `openfilter[all]>=0.1.27` pin.
+
+## v0.4.5 - 2026-04-23
+
+### Changed
+- Bump openfilter SDK, align CI workflow with shared release gate (source-paths)
+- Fix release workflow secret names: `PYPI_API_TOKEN` → `PLAINSIGHT_PYPI_TOKEN`, `DOCKERHUB_TOKEN` → `DOCKERHUB_ACCESS_TOKEN` (org-level secret names). Without this the PyPI / Docker Hub tokens resolved to empty and no package has been published since the migration.
+- Bump openfilter dependency to `>=0.1.30`.
 
 ## v0.4.4 - 2026-04-20
 

@@ -69,11 +69,17 @@ def hf_load_error_handler(model_id: str, revision: str, task: str):
             f"Check the revision (commit SHA, tag, or branch). "
             f"Detail: {repr(e)}"
         ) from e
+    # Catch order is load-bearing here: at hub 0.23 (our declared floor) these
+    # are subclasses of HfHubHTTPError, and LocalEntryNotFoundError is also a
+    # subclass of ValueError; do not reorder this branch below either of them.
     except (LocalEntryNotFoundError, EntryNotFoundError) as e:
         raise RuntimeError(
-            f"Model entry for '{model_id}@{revision}' not found in cache. "
-            f"If running offline, pre-download the model; if concurrent workers "
-            f"share a cache, retry after the first worker completes. Detail: {repr(e)}"
+            f"Model entry for '{model_id}@{revision}' could not be resolved: the "
+            f"repository may be missing the expected file, or the local cache may "
+            f"be incomplete. If running offline, pre-download the model with "
+            f"`huggingface-cli download {model_id} --revision {revision}` before "
+            f"starting the filter; if concurrent workers share a cache, retry "
+            f"after the first worker completes. Detail: {repr(e)}"
         ) from e
     except HfHubHTTPError as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
