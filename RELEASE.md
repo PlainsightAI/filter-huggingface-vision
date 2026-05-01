@@ -1,5 +1,3 @@
-# v0.4.6
-
 # Changelog
 Huggingface Vision filter release notes
 

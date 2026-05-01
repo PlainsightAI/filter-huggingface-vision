@@ -26,7 +26,7 @@ services:
 
   filter_huggingface_vision:
     # v0.4.1 was PyPI-only; compose tracks published images (0.4.0 → 0.4.2).
-    image: plainsightai/openfilter-huggingface-vision:0.4.5
+    image: plainsightai/openfilter-huggingface-vision:0.4.6
     env_file:
       - .env
     environment:
