@@ -1,8 +1,19 @@
-# v0.4.5
+# v0.4.6
 
 # Changelog
 Huggingface Vision filter release notes
 
+
+## v0.4.6 - 2026-05-01
+
+### Fixed
+- `open-vocabulary` backend now supports OWLv2 models (`google/owlv2-*`): replaced hardcoded `OwlViTProcessor` + `OwlViTForObjectDetection` with `AutoProcessor` + `AutoModelForZeroShotObjectDetection`. Loading an OWLv2 checkpoint with the OWLv1 class silently initialized all weights from random, producing zero-quality detections with no error raised.
+
+### Changed
+- `open-vocabulary` backend loads models in `float16` by default (~3× throughput improvement on GPU vs fp32 baseline).
+- `open-vocabulary` backend logs a single FPS summary line on `shutdown()` for throughput observability.
+- `scripts/zero_shot_object_detection.py` updated to use `google/owlv2-base-patch16-ensemble` and `!sync!resize=960x540` VideoIn option.
+- `docker-compose.yaml`: add `env_file`, `FILTER_DETECTION_TYPE`, `FILTER_DEVICE`, `FILTER_MAX_DETECTIONS`, `FILTER_TOP_K`, `FILTER_TEXT_LABELS`; VideoIn source now uses `resize=960x540!sync` and supports `VIDEO_INPUT` / `VIDEO_PATH` overrides.
 
 ## v0.4.5 - 2026-04-23
 
