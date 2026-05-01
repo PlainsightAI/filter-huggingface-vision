@@ -74,11 +74,13 @@ class OwlVitBackend(VisionBackend):
         self._processor = AutoProcessor.from_pretrained(
             model_id, revision=revision, trust_remote_code=False
         )
+        torch_dtype = torch.float16 if self._device.type == "cuda" else torch.float32
         self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False, torch_dtype=torch.float16
+            model_id, revision=revision, trust_remote_code=False, torch_dtype=torch_dtype
         )
         self._model = self._model.to(self._device)
         self._model.eval()
+        self._model_dtype = torch_dtype
         self._revision = revision
         self._fps_frame_count = 0
         self._fps_start = None
@@ -118,11 +120,20 @@ class OwlVitBackend(VisionBackend):
         )
         import torch
 
-        inputs = {k: v.to(self._device) if hasattr(v, "to") else v for k, v in inputs.items()}
+        inputs = {
+            k: v.to(device=self._device, dtype=self._model_dtype) if hasattr(v, "to") and v.is_floating_point()
+            else v.to(self._device) if hasattr(v, "to")
+            else v
+            for k, v in inputs.items()
+        }
+
+        if self._fps_start is None:
+            self._fps_start = time.monotonic()
 
         with torch.no_grad():
             outputs = self._model(**inputs)
 
+        self._fps_frame_count += 1
         target_sizes = torch.tensor([[height, width]], device=self._device)
         results = self._processor.post_process_grounded_object_detection(
             outputs=outputs,
@@ -131,7 +142,4 @@ class OwlVitBackend(VisionBackend):
             text_labels=text_labels,
         )
         result = results[0] if results else {}
-        if self._fps_start is None:
-            self._fps_start = time.monotonic()
-        self._fps_frame_count += 1
         return _normalize_results(result, text_labels, max_detections)

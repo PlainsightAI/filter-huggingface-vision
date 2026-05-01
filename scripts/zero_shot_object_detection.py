@@ -33,13 +33,13 @@ from filter_huggingface_vision.filter import (
 MODEL_ID = "google/owlv2-base-patch16-ensemble"
 REVISION = "main"
 # Text queries for zero-shot detection (one list per image)
-TEXT_LABELS = [["person", "cup"]]
+TEXT_LABELS = [['paper bag', 'shopping bag', 'takeout bag', 'white bag']]
 
 if __name__ == "__main__":
     video_path = os.getenv("VIDEO_PATH", "")
     if not video_path or not os.path.exists(video_path):
         raise FileNotFoundError("VIDEO_PATH must point to an existing video. Set it in .env.")
-    threshold = float(os.getenv("THRESHOLD", "0.1"))
+    threshold = float(os.getenv("THRESHOLD", "0.5"))
     port = int(os.getenv("PORT", "8010"))
 
     print("Pipeline: Zero-Shot (OWL-ViT / OWLv2)")
@@ -47,6 +47,7 @@ if __name__ == "__main__":
 
     Filter.run_multi(
         [
+            # !loop omitted intentionally: single-pass for throughput benchmarking via shutdown() FPS log
             (VideoIn, dict(sources=f"file://{video_path}!sync!resize=960x540", outputs="tcp://*:5550")),
             (
                 FilterHuggingfaceVision,
@@ -59,7 +60,6 @@ if __name__ == "__main__":
                     detection_type="open-vocabulary",
                     text_labels=TEXT_LABELS,
                     threshold=threshold,
-                    top_k=15,
                     draw_visualization=True,
                     device="cuda",
                     visualization_topic="viz",
