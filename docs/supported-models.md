@@ -8,7 +8,7 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 |----------------------------|------------------|-------------------|
 | `AutoImageProcessor` + `AutoModelForImageClassification` | `image-classification` | `google/vit-base-patch16-224`, `facebook/convnext-tiny-224` |
 | `AutoImageProcessor` + `AutoModelForObjectDetection` | `closed-vocabulary` | `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50` |
-| `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
+| `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary` | `google/owlv2-base-patch16-ensemble`, `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
 | `AutoModel` / any `AutoModelFor*` / timm (hook-based) | `embedding` | `facebook/dinov2-small`, `facebook/dinov2-base`, `google/vit-base-patch16-224`, `convnext_tiny.dinov3_lvd1689m` (timm) |
 
@@ -24,7 +24,7 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 |--------|----------------|--------------|
 | `scripts/object_detection.py` | Closed-vocabulary (DETR / RT-DETR) | `MODEL_ID` + `REVISION` from .env |
 | `scripts/image_classification.py` | Image classification (ViT / ConvNeXt) | `MODEL_ID` + `REVISION` from .env |
-| `scripts/zero_shot_object_detection.py` | Open-vocabulary (OWL-ViT) | Fixed in code: `google/owlvit-base-patch32` @ main |
+| `scripts/zero_shot_object_detection.py` | Open-vocabulary (OWLv2 / OWL-ViT) | Fixed in code: `google/owlv2-base-patch16-ensemble` @ main |
 | `scripts/grounding_dino.py` | Open-vocabulary (Grounding DINO) | Fixed in code: MM Grounding DINO tiny @ main |
 | `scripts/generate_exemplars.py` | Embedding (offline exemplar generation) | `MODEL_ID` + `REVISION` from .env |
 
@@ -117,26 +117,30 @@ VIDEO_PATH=./filter_example_video.mp4
 
 ---
 
-## Open-vocabulary object detection (OWL-ViT)
+## Open-vocabulary object detection (OWLv2 / OWL-ViT)
 
-**API:** `OwlViTProcessor` + `OwlViTForObjectDetection`. Models that load with this API are supported. Text queries at inference; no fixed class set.  
-**Dependency:** `sentencepiece` (for OWL-ViT tokenizer).
+**API:** `AutoProcessor` + `AutoModelForZeroShotObjectDetection`. Both OWLv2 (`google/owlv2-*`) and OWLv1 (`google/owlvit-*`) models are supported — the Auto classes select the correct architecture from the checkpoint `config.json`. Text queries at inference; no fixed class set.  
+**Dependency:** `sentencepiece` (for the tokenizer).
 
 **Example model IDs:**
 
 | MODEL_ID | REVISION |
 |----------|----------|
+| google/owlv2-base-patch16-ensemble | main |
+| google/owlv2-base-patch16 | main |
 | google/owlvit-base-patch32 | main |
+| google/owlvit-base-patch16 | main |
 
 - **text_labels**: list of list of str (e.g. one list per image). Required for zero-shot.
-- The script `zero_shot_object_detection_pipeline.py` uses a fixed model and `TEXT_LABELS` in code; only `VIDEO_PATH` (and optionally `THRESHOLD`, `PORT`) are read from .env.
+- The script `scripts/zero_shot_object_detection.py` uses a fixed model and `TEXT_LABELS` in code; only `VIDEO_PATH` (and optionally `THRESHOLD`, `PORT`) are read from .env.
+- For best throughput on GPU, use `torch_dtype=torch.float16` (enabled by default in the backend) and pre-resize input video to 960×540 (`!resize=960x540` in the VideoIn source string).
 
 ### Example config (open-vocabulary, in code)
 
 ```python
 FilterHuggingfaceVisionConfig(
     detection_type="open-vocabulary",
-    model_id="google/owlvit-base-patch32",
+    model_id="google/owlv2-base-patch16-ensemble",  # or "google/owlvit-base-patch32" for OWLv1
     revision="main",
     text_labels=[["a person", "a cup"]],
     threshold=0.1,

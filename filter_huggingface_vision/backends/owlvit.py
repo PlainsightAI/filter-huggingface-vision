@@ -1,6 +1,7 @@
-"""Zero-shot object detection backend: OwlViTProcessor + OwlViTForObjectDetection."""
+"""Zero-shot object detection backend: supports OWLv1 and OWLv2 via Auto classes."""
 
 import logging
+import time
 
 from filter_huggingface_vision.utils import get_config_value, resolve_device
 
@@ -60,30 +61,43 @@ def _normalize_results(result, text_labels_list, max_detections):
 
 
 class OwlVitBackend(VisionBackend):
-    """Backend for OwlViTProcessor + OwlViTForObjectDetection (zero-shot with text_labels)."""
+    """Backend for zero-shot object detection supporting OWLv1 and OWLv2 via Auto classes."""
 
     def load(self, config):
-        from transformers import OwlViTForObjectDetection, OwlViTProcessor
+        import torch
+        from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
         self._device = resolve_device(get_config_value(config, "device", "cpu"))
         model_id = get_config_value(config, "model_id")
         revision = (get_config_value(config, "revision") or "").strip() or "main"
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        self._processor = OwlViTProcessor.from_pretrained(
+        self._processor = AutoProcessor.from_pretrained(
             model_id, revision=revision, trust_remote_code=False
         )
-        self._model = OwlViTForObjectDetection.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False
+        self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
+            model_id, revision=revision, trust_remote_code=False, torch_dtype=torch.float16
         )
         self._model = self._model.to(self._device)
         self._model.eval()
         self._revision = revision
+        self._fps_frame_count = 0
+        self._fps_start = None
         logger.info(
             "OwlVitBackend loaded model_id=%s revision=%s device=%s",
             model_id,
             revision,
             self._device,
         )
+
+    def shutdown(self):
+        if self._fps_frame_count > 0 and self._fps_start is not None:
+            elapsed = time.monotonic() - self._fps_start
+            fps = self._fps_frame_count / elapsed if elapsed > 0 else 0.0
+            logger.info(
+                "OwlVitBackend final throughput: %.2f fps (%d frames in %.1fs)",
+                fps, self._fps_frame_count, elapsed,
+            )
+        super().shutdown()
 
     def run(self, image_pil, width, height, config):
         threshold = get_config_value(config, "threshold", 0.1)
@@ -117,4 +131,7 @@ class OwlVitBackend(VisionBackend):
             text_labels=text_labels,
         )
         result = results[0] if results else {}
+        if self._fps_start is None:
+            self._fps_start = time.monotonic()
+        self._fps_frame_count += 1
         return _normalize_results(result, text_labels, max_detections)
