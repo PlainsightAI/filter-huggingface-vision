@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
 """
-Zero-Shot Object Detection Pipeline (OWL-ViT).
+Zero-Shot Object Detection Pipeline (OWL-ViT / OWLv2).
 
 Pipeline: VideoIn → FilterHuggingfaceVision (zero-shot-object-detection) → Webvis
 
-Uses model google/owlvit-base-patch32 (fixed; do not set MODEL_ID in .env for this script).
+Uses model google/owlv2-base-patch16-ensemble by default (fixed; do not set MODEL_ID in .env for this script).
 Required env: VIDEO_PATH
-Optional: THRESHOLD (default 0.1), PORT (default 8010)
+Optional: THRESHOLD (default 0.5), PORT (default 8010)
 """
 
 import os
@@ -27,26 +27,28 @@ from filter_huggingface_vision.filter import (
     FilterHuggingfaceVisionConfig,
 )
 
-# OWL-ViT model (this script ignores MODEL_ID in .env to avoid loading RT-DETR by mistake)
-MODEL_ID = "google/owlvit-base-patch32"
+# Default model: OWLv2 (better accuracy than OWLv1; both work with open-vocabulary detection_type)
+# MODEL_ID = "google/owlvit-base-patch32"
+# MODEL_ID = "google/owlvit-base-patch16"
+MODEL_ID = "google/owlv2-base-patch16-ensemble"
 REVISION = "main"
 # Text queries for zero-shot detection (one list per image)
 TEXT_LABELS = [["a person", "a cup"]]
-
 
 if __name__ == "__main__":
     video_path = os.getenv("VIDEO_PATH", "")
     if not video_path or not os.path.exists(video_path):
         raise FileNotFoundError("VIDEO_PATH must point to an existing video. Set it in .env.")
-    threshold = float(os.getenv("THRESHOLD", "0.1"))
+    threshold = float(os.getenv("THRESHOLD", "0.5"))
     port = int(os.getenv("PORT", "8010"))
 
-    print("Pipeline: Zero-Shot (OWL-ViT)")
+    print("Pipeline: Zero-Shot (OWL-ViT / OWLv2)")
     print(f"Video: {video_path} | Model: {MODEL_ID} @ {REVISION} | Labels: {TEXT_LABELS}")
 
     Filter.run_multi(
         [
-            (VideoIn, dict(sources=f"file://{video_path}!loop", outputs="tcp://*:5550")),
+            # !loop omitted intentionally: single-pass for throughput benchmarking via shutdown() FPS log
+            (VideoIn, dict(sources=f"file://{video_path}!sync!resize=960x540", outputs="tcp://*:5550")),
             (
                 FilterHuggingfaceVision,
                 FilterHuggingfaceVisionConfig(
@@ -59,6 +61,7 @@ if __name__ == "__main__":
                     text_labels=TEXT_LABELS,
                     threshold=threshold,
                     draw_visualization=True,
+                    device="cuda",
                     visualization_topic="viz",
                 ),
             ),

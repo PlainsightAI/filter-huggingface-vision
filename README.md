@@ -14,7 +14,7 @@ We support the following Hugging Face APIs. Each API corresponds to one `detecti
 |----------------------------|------------------|-------------------|
 | `AutoImageProcessor` + `AutoModelForImageClassification` | `image-classification` | `google/vit-base-patch16-224`, `facebook/convnext-tiny-224` |
 | `AutoImageProcessor` + `AutoModelForObjectDetection` | `closed-vocabulary` | `PekingU/rtdetr_r50vd`, `facebook/detr-resnet-50` |
-| `OwlViTProcessor` + `OwlViTForObjectDetection` | `open-vocabulary` | `google/owlvit-base-patch32` |
+| `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary` | `google/owlv2-base-patch16-ensemble`, `google/owlvit-base-patch32` |
 | `AutoProcessor` + `AutoModelForZeroShotObjectDetection` | `open-vocabulary-grounding` | `openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det` |
 | `AutoModel` / any `AutoModelFor*` / timm (hook-based) | `embedding` | `facebook/dinov2-small`, `google/vit-base-patch16-224`, `convnext_tiny.dinov3_lvd1689m` (timm) |
 
@@ -26,7 +26,7 @@ Full list and config examples: [docs/supported-models.md](docs/supported-models.
 |--------|----------------|--------|------------|
 | **Image classification** (ViT, ConvNeXt, etc.) | `image-classification` | `scripts/image_classification.py` | `MODEL_ID`, `REVISION`, `VIDEO_PATH`, optional `TOP_K` in `.env` |
 | **Closed-vocabulary** (DETR, RT-DETR, Conditional DETR) | `closed-vocabulary` | `scripts/object_detection.py` | `MODEL_ID`, `REVISION`, `VIDEO_PATH` in `.env` |
-| **Open-vocabulary** (OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
+| **Open-vocabulary** (OWLv2 / OWL-ViT) | `open-vocabulary` | `scripts/zero_shot_object_detection.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 | **Open-vocabulary** (Grounding DINO) | `open-vocabulary-grounding` | `scripts/grounding_dino.py` | `text_labels` in code; `VIDEO_PATH` in `.env` |
 | **Embedding extraction** (any model) | `embedding` | `scripts/generate_exemplars.py` (offline) | `MODEL_ID`, `REVISION` in `.env` |
 
@@ -38,7 +38,7 @@ Output is written to `frame.data["meta"]` (see [Output Structure](#output-struct
 - **Detection types**: `image-classification`, `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, `embedding` via pluggable backends (one backend per API).
 - **Image classification**: Run ViT, ConvNeXt, or any `AutoModelForImageClassification` model with `model_id`, `revision`, `top_k`; output `classifications` (label, score).
 - **Object detection**: Run DETR, RT-DETR, etc. with `model_id`, `revision`, `threshold`, `max_detections`; output in `frame.data["meta"]` with `detections` (`{class, rois}` normalized), `detection_confidence`.
-- **Zero-shot detection**: OWL-ViT or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
+- **Zero-shot detection**: OWLv2 or OWL-ViT (via Auto classes) or Grounding DINO with `text_labels` (list of list of str) for open-vocabulary queries.
 - **Embedding extraction**: Extract penultimate-layer feature embeddings from *any* vision model (classification, detection, or feature extractor). Uses PyTorch forward hooks to capture the last representation before the output head, making it model-agnostic. Supports HuggingFace Transformers and timm via the `model_loader` config option. Optionally computes minimum L2 distance to exemplar embeddings for similarity-based anomaly detection.
 - **Standardized output**: JSON-serializable payload in `frame.data["meta"]`: object detection writes `detections`, `detection_confidence`; image classification writes only `detection_type`, `task`, `model`, and `classification` (no detections or detection_confidence); embedding writes `embedding` and optionally `min_exemplar_distance` to `frame.data`.
 - **Visualization**: Optional topic (e.g. `viz`) with bounding boxes/labels (detection) or top label + score (classification).
@@ -166,7 +166,7 @@ Run the zero-shot script (model and `text_labels` are set in the script):
 python scripts/zero_shot_object_detection.py
 ```
 
-Or use the filter with `detection_type="open-vocabulary"`, model `google/owlvit-base-patch32`, and `text_labels` (list of list of str):
+Or use the filter with `detection_type="open-vocabulary"`, and `text_labels` (list of list of str). Both OWLv1 and OWLv2 models are supported:
 
 ```python
 from filter_huggingface_vision.filter import FilterHuggingfaceVision, FilterHuggingfaceVisionConfig
@@ -174,7 +174,7 @@ from filter_huggingface_vision.filter import FilterHuggingfaceVision, FilterHugg
 FilterHuggingfaceVisionConfig(
     ...
     detection_type="open-vocabulary",
-    model_id="google/owlvit-base-patch32",
+    model_id="google/owlv2-base-patch16-ensemble",  # or "google/owlvit-base-patch32" for OWLv1
     revision="main",
     text_labels=[["a photo of a cat", "a photo of a dog"]],
     threshold=0.1,
@@ -346,7 +346,7 @@ filter-huggingface-vision/
 ### Key Dependencies
 
 - `openfilter[all]>=0.1.21` - Filter framework
-- `transformers>=4.40.0` - Hugging Face APIs (AutoImageProcessor + AutoModelForImageClassification / AutoModelForObjectDetection, OwlViT, AutoModelForZeroShotObjectDetection)
+- `transformers>=4.40.0` - Hugging Face APIs (AutoImageProcessor + AutoModelForImageClassification / AutoModelForObjectDetection, AutoProcessor + AutoModelForZeroShotObjectDetection for OWLv1/OWLv2, AutoModelForZeroShotObjectDetection for Grounding DINO)
 - `torch` - Inference
 - `pillow` - Image handling
 - `huggingface-hub` - Model loading

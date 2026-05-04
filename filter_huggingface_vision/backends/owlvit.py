@@ -1,6 +1,7 @@
-"""Zero-shot object detection backend: OwlViTProcessor + OwlViTForObjectDetection."""
+"""Zero-shot object detection backend: supports OWLv1 and OWLv2 via Auto classes."""
 
 import logging
+import time
 
 from filter_huggingface_vision.utils import get_config_value, resolve_device
 
@@ -60,30 +61,45 @@ def _normalize_results(result, text_labels_list, max_detections):
 
 
 class OwlVitBackend(VisionBackend):
-    """Backend for OwlViTProcessor + OwlViTForObjectDetection (zero-shot with text_labels)."""
+    """Backend for zero-shot object detection supporting OWLv1 and OWLv2 via Auto classes."""
 
     def load(self, config):
-        from transformers import OwlViTForObjectDetection, OwlViTProcessor
+        import torch
+        from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
         self._device = resolve_device(get_config_value(config, "device", "cpu"))
         model_id = get_config_value(config, "model_id")
         revision = (get_config_value(config, "revision") or "").strip() or "main"
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        self._processor = OwlViTProcessor.from_pretrained(
+        self._processor = AutoProcessor.from_pretrained(
             model_id, revision=revision, trust_remote_code=False
         )
-        self._model = OwlViTForObjectDetection.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False
+        torch_dtype = torch.float16 if self._device.type == "cuda" else torch.float32
+        self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
+            model_id, revision=revision, trust_remote_code=False, torch_dtype=torch_dtype
         )
         self._model = self._model.to(self._device)
         self._model.eval()
+        self._model_dtype = torch_dtype
         self._revision = revision
+        self._fps_frame_count = 0
+        self._fps_start = None
         logger.info(
             "OwlVitBackend loaded model_id=%s revision=%s device=%s",
             model_id,
             revision,
             self._device,
         )
+
+    def shutdown(self):
+        if self._fps_frame_count > 0 and self._fps_start is not None:
+            elapsed = time.monotonic() - self._fps_start
+            fps = self._fps_frame_count / elapsed if elapsed > 0 else 0.0
+            logger.info(
+                "OwlVitBackend final throughput: %.2f fps (%d frames in %.1fs)",
+                fps, self._fps_frame_count, elapsed,
+            )
+        super().shutdown()
 
     def run(self, image_pil, width, height, config):
         threshold = get_config_value(config, "threshold", 0.1)
@@ -104,11 +120,20 @@ class OwlVitBackend(VisionBackend):
         )
         import torch
 
-        inputs = {k: v.to(self._device) if hasattr(v, "to") else v for k, v in inputs.items()}
+        inputs = {
+            k: v.to(device=self._device, dtype=self._model_dtype) if hasattr(v, "to") and v.is_floating_point()
+            else v.to(self._device) if hasattr(v, "to")
+            else v
+            for k, v in inputs.items()
+        }
+
+        if self._fps_start is None:
+            self._fps_start = time.monotonic()
 
         with torch.no_grad():
             outputs = self._model(**inputs)
 
+        self._fps_frame_count += 1
         target_sizes = torch.tensor([[height, width]], device=self._device)
         results = self._processor.post_process_grounded_object_detection(
             outputs=outputs,
