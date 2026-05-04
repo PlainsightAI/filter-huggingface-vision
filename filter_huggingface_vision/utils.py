@@ -28,4 +28,5 @@ def resolve_device(device):
             logger.warning("Requested device=%s but CUDA is unavailable; falling back to CPU", device)
             return torch.device("cpu")
         return torch.device(device)
+    logger.warning("Unrecognized device=%r; falling back to CPU", device)
     return torch.device("cpu")

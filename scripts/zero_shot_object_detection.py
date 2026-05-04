@@ -7,7 +7,7 @@ Pipeline: VideoIn → FilterHuggingfaceVision (zero-shot-object-detection) → W
 
 Uses model google/owlv2-base-patch16-ensemble by default (fixed; do not set MODEL_ID in .env for this script).
 Required env: VIDEO_PATH
-Optional: THRESHOLD (default 0.1), PORT (default 8010)
+Optional: THRESHOLD (default 0.5), PORT (default 8010)
 """
 
 import os
@@ -33,7 +33,7 @@ from filter_huggingface_vision.filter import (
 MODEL_ID = "google/owlv2-base-patch16-ensemble"
 REVISION = "main"
 # Text queries for zero-shot detection (one list per image)
-TEXT_LABELS = [['paper bag', 'shopping bag', 'takeout bag', 'white bag']]
+TEXT_LABELS = [["a person", "a cup"]]
 
 if __name__ == "__main__":
     video_path = os.getenv("VIDEO_PATH", "")
