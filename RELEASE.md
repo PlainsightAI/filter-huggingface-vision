@@ -12,6 +12,7 @@ Huggingface Vision filter release notes
 - `open-vocabulary` backend logs a single FPS summary line on `shutdown()` for throughput observability.
 - `scripts/zero_shot_object_detection.py` updated to use `google/owlv2-base-patch16-ensemble` and `!sync!resize=960x540` VideoIn option.
 - `docker-compose.yaml`: add `env_file`, `FILTER_DETECTION_TYPE`, `FILTER_DEVICE`, `FILTER_MAX_DETECTIONS`, `FILTER_TOP_K`, `FILTER_TEXT_LABELS`; VideoIn source now uses `resize=960x540!sync` and supports `VIDEO_INPUT` / `VIDEO_PATH` overrides.
+- Bump openfilter to 1.0.0
 
 ## v0.4.5 - 2026-04-23
 
