@@ -93,7 +93,7 @@ class ObjectDetectionBackend(VisionBackend):
                     "Install it with: pip install timm"
                 ) from e
             raise
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             raise RuntimeError(
                 f"Model {model_id} (revision={revision}) is not compatible with AutoImageProcessor + AutoModelForObjectDetection. "
                 "Use a model supported by the Transformers object-detection API, or enable fallback when available."

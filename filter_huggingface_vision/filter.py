@@ -19,12 +19,9 @@ def _image_from_frame(frame, input_topic):
     """Extract image and size from frame; return (PIL Image RGB, width, height) or (None, 0, 0).
     Uses OpenFilter Frame convention first (frame.rw_bgr.image, like Protege), then fallback to frame.data[topic].
     """
-    try:
-        from PIL import Image
-        import numpy as np
-        import cv2
-    except ImportError:
-        return None, 0, 0
+    from PIL import Image
+    import numpy as np
+    import cv2
 
     # OpenFilter Frame: image is on the frame (frame.rw_bgr.image), not in frame.data
     if getattr(frame, "has_image", False) and hasattr(frame, "rw_bgr"):
@@ -58,7 +55,10 @@ def _image_from_frame(frame, input_topic):
         if arr.shape[-1] == 3:
             try:
                 rgb = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-            except Exception:
+            except cv2.error as e:
+                logger.warning(
+                    "cv2.cvtColor BGR->RGB failed; using input array as-is. error=%s", e
+                )
                 rgb = arr
         else:
             rgb = arr
@@ -109,9 +109,10 @@ def _apply_meta(meta_dict, payload, config):
         payload, width, height
     )
     _dt = payload.get("detection_type")
-    assert _dt is not None, (
-        "payload must include detection_type (set by classification or detection branch)"
-    )
+    if _dt is None:
+        raise ValueError(
+            "payload must include detection_type (set by classification or detection branch)"
+        )
     meta_dict["detection_type"] = _dt
     meta_dict["task"] = payload.get("task", "object-detection")
     meta_dict["model"] = payload.get("model", {"id": "", "revision": ""})
@@ -135,11 +136,8 @@ def _apply_meta(meta_dict, payload, config):
 
 def _create_visualization(image_bgr, payload):
     """Draw detection boxes and labels, or (for classification) top label + score as text. Returns BGR numpy array."""
-    try:
-        import cv2
-        import numpy as np
-    except ImportError:
-        return image_bgr.copy() if image_bgr is not None else None
+    import cv2
+    import numpy as np
 
     vis_image = image_bgr.copy()
     classifications = payload.get("classifications", [])
@@ -403,7 +401,13 @@ class FilterHuggingfaceVision(Filter):
         logger.info("FilterHuggingfaceVision shutdown complete.")
 
     def process(self, frames: dict[str, Frame]):
-        if not frames or not getattr(self, "_backend", None):
+        if not frames:
+            return frames
+        if not getattr(self, "_backend", None):
+            logger.warning(
+                "Backend not initialized; passing %d frame(s) through unprocessed",
+                len(frames),
+            )
             return frames
 
         # So Webvis (sources="...;main,...;viz") always gets a "main" stream: if the

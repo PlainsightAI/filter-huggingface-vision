@@ -106,6 +106,11 @@ class OwlVitBackend(VisionBackend):
         max_detections = get_config_value(config, "max_detections", 100)
         text_labels = get_config_value(config, "text_labels")
         if not text_labels or not isinstance(text_labels, (list, tuple)) or not text_labels:
+            logger.warning(
+                "text_labels is empty or invalid (got %r); returning zero detections for %s",
+                text_labels,
+                type(self).__name__,
+            )
             return []
         # One image: text_labels is list of list of str, use first list for this image
         if isinstance(text_labels[0], (list, tuple)):

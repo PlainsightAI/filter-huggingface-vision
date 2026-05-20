@@ -55,7 +55,7 @@ class ImageClassificationBackend(VisionBackend):
             self._model = AutoModelForImageClassification.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             raise RuntimeError(
                 f"Model {model_id} (revision={revision}) is not compatible with "
                 "AutoImageProcessor + AutoModelForImageClassification. "
