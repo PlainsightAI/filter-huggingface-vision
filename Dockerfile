@@ -19,6 +19,7 @@ ARG CUDA_SUFFIX=cu128
 ARG FILTER_PKG_VERSION_OVERRIDE=
 
 RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
+    --mount=type=bind,target=/src,ro \
     set -eux; \
     TP="${TARGETPLATFORM}"; BP="${BUILDPLATFORM}"; \
     if [ -z "$TP" ]; then PLAT="$BP"; else PLAT="$TP"; fi; \
@@ -41,12 +42,26 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
       printf '%s\n' "torch==${TORCH_VERSION}" "torchvision==${TORCHVISION_VERSION}" > /tmp/pip-constraints.txt; \
       PYTORCH_EXTRA=""; \
     fi && \
-    pip install --no-cache-dir \
-    -c /tmp/pip-constraints.txt \
-    --index-url https://python.openfilter.io/simple \
-    $PYTORCH_EXTRA \
-    --extra-index-url https://pypi.org/simple \
-    "filter-huggingface-vision==${INSTALL_VER}" && \
+    # Install the filter: prefer the published wheel (release / post-publish builds), but fall back to
+    # the local source tree if that version isn't on the index yet (e.g. dry-run-publish on a PR that
+    # bumps VERSION ahead of PyPI). Both paths use the same pip constraints, so torch/torchvision pins
+    # are honored regardless of source.
+    if pip install --no-cache-dir \
+        -c /tmp/pip-constraints.txt \
+        --index-url https://python.openfilter.io/simple \
+        $PYTORCH_EXTRA \
+        --extra-index-url https://pypi.org/simple \
+        "filter-huggingface-vision==${INSTALL_VER}"; then \
+      echo "Installed filter-huggingface-vision==${INSTALL_VER} from index"; \
+    else \
+      echo "filter-huggingface-vision==${INSTALL_VER} not on index yet; falling back to local source (dry-run / pre-publish build)"; \
+      pip install --no-cache-dir \
+        -c /tmp/pip-constraints.txt \
+        --index-url https://python.openfilter.io/simple \
+        $PYTORCH_EXTRA \
+        --extra-index-url https://pypi.org/simple \
+        /src; \
+    fi && \
     if [ "$PLAT" = "linux/amd64" ]; then \
       python -c "import torch; assert torch.version.cuda is not None, 'CUDA torch not installed'"; \
     fi
