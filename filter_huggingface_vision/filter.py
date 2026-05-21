@@ -214,6 +214,9 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Required when detection_type is "open-vocabulary" or "open-vocabulary-grounding".
     # Example: [["a photo of a cat", "a photo of a dog"]] for a single image.
     text_labels: list[list[str]] | None = None
+    # Grounding DINO only: confidence threshold for matching text tokens to boxes.
+    # Defaults to `threshold` when unset. Range [0.0, 1.0].
+    text_threshold: float | None = None
     # Embedding extraction options (detection_type="embedding")
     model_loader: str = "transformers"  # "transformers" or "timm"
     exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings

@@ -95,7 +95,15 @@ class GroundingDinoBackend(VisionBackend):
 
     def run(self, image_pil, width, height, config):
         threshold = get_config_value(config, "threshold", 0.3)
-        text_threshold = get_config_value(config, "text_threshold", threshold)
+        text_threshold = get_config_value(config, "text_threshold", None)
+        if text_threshold is None:
+            text_threshold = threshold
+        else:
+            text_threshold = float(text_threshold)
+            if not 0.0 <= text_threshold <= 1.0:
+                raise ValueError(
+                    f"text_threshold must be in [0.0, 1.0]; got {text_threshold!r}"
+                )
         max_detections = get_config_value(config, "max_detections", 100)
         text_labels = get_config_value(config, "text_labels")
         if not text_labels or not isinstance(text_labels, (list, tuple)) or not text_labels:

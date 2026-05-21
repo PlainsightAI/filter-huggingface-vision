@@ -105,6 +105,7 @@ class TestBackendsDontMisattributeInfraErrors(unittest.TestCase):
     """Fix #6: object_detection and image_classification backends must not relabel
     infra errors (OSError, MemoryError, ConnectionError) as 'model not compatible'.
     Only narrow compatibility-related exceptions get the RuntimeError treatment.
+    Both the processor-load and the model-load try blocks are covered.
     """
 
     def test_object_detection_propagates_oserror(self):
@@ -131,6 +132,18 @@ class TestBackendsDontMisattributeInfraErrors(unittest.TestCase):
             with self.assertRaises(MemoryError):
                 backend.load(cfg)
 
+    def test_object_detection_propagates_connection_error(self):
+        from filter_huggingface_vision.backends.object_detection import ObjectDetectionBackend
+
+        backend = ObjectDetectionBackend()
+        cfg = SimpleNamespace(model_id="x", revision="main", device="cpu")
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=ConnectionError("hub unreachable"),
+        ):
+            with self.assertRaises(ConnectionError):
+                backend.load(cfg)
+
     def test_object_detection_wraps_value_error_as_runtime_error(self):
         from filter_huggingface_vision.backends.object_detection import ObjectDetectionBackend
 
@@ -142,7 +155,30 @@ class TestBackendsDontMisattributeInfraErrors(unittest.TestCase):
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 backend.load(cfg)
-        self.assertIn("not compatible", str(ctx.exception).lower())
+        # Processor-load failure must name AutoImageProcessor, not the model class.
+        msg = str(ctx.exception)
+        self.assertIn("not compatible", msg.lower())
+        self.assertIn("AutoImageProcessor", msg)
+
+    def test_object_detection_model_load_failure_names_model_class(self):
+        from filter_huggingface_vision.backends.object_detection import ObjectDetectionBackend
+
+        backend = ObjectDetectionBackend()
+        cfg = SimpleNamespace(model_id="x", revision="main", device="cpu")
+        # Processor succeeds; only the model load raises a compat error.
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=mock.MagicMock(),
+        ), mock.patch(
+            "transformers.AutoModelForObjectDetection.from_pretrained",
+            side_effect=ValueError("not a supported model"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                backend.load(cfg)
+        msg = str(ctx.exception)
+        self.assertIn("not compatible", msg.lower())
+        self.assertIn("AutoModelForObjectDetection", msg)
+        self.assertNotIn("AutoImageProcessor", msg)
 
     def test_image_classification_propagates_oserror(self):
         from filter_huggingface_vision.backends.image_classification import (
@@ -158,6 +194,34 @@ class TestBackendsDontMisattributeInfraErrors(unittest.TestCase):
             with self.assertRaises(OSError):
                 backend.load(cfg)
 
+    def test_image_classification_propagates_memory_error(self):
+        from filter_huggingface_vision.backends.image_classification import (
+            ImageClassificationBackend,
+        )
+
+        backend = ImageClassificationBackend()
+        cfg = SimpleNamespace(model_id="x", revision="main", device="cpu")
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=MemoryError("oom"),
+        ):
+            with self.assertRaises(MemoryError):
+                backend.load(cfg)
+
+    def test_image_classification_propagates_connection_error(self):
+        from filter_huggingface_vision.backends.image_classification import (
+            ImageClassificationBackend,
+        )
+
+        backend = ImageClassificationBackend()
+        cfg = SimpleNamespace(model_id="x", revision="main", device="cpu")
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=ConnectionError("hub unreachable"),
+        ):
+            with self.assertRaises(ConnectionError):
+                backend.load(cfg)
+
     def test_image_classification_wraps_value_error_as_runtime_error(self):
         from filter_huggingface_vision.backends.image_classification import (
             ImageClassificationBackend,
@@ -171,7 +235,127 @@ class TestBackendsDontMisattributeInfraErrors(unittest.TestCase):
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 backend.load(cfg)
-        self.assertIn("not compatible", str(ctx.exception).lower())
+        msg = str(ctx.exception)
+        self.assertIn("not compatible", msg.lower())
+        self.assertIn("AutoImageProcessor", msg)
+
+    def test_image_classification_model_load_failure_names_model_class(self):
+        from filter_huggingface_vision.backends.image_classification import (
+            ImageClassificationBackend,
+        )
+
+        backend = ImageClassificationBackend()
+        cfg = SimpleNamespace(model_id="x", revision="main", device="cpu")
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=mock.MagicMock(),
+        ), mock.patch(
+            "transformers.AutoModelForImageClassification.from_pretrained",
+            side_effect=ValueError("not a supported model"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                backend.load(cfg)
+        msg = str(ctx.exception)
+        self.assertIn("not compatible", msg.lower())
+        self.assertIn("AutoModelForImageClassification", msg)
+        self.assertNotIn("AutoImageProcessor", msg)
+
+
+class TestEmbeddingBackendDoesNotSwallowInfraErrors(unittest.TestCase):
+    """Fix #6 (extension): EmbeddingBackend._load_transformers must not retry OSError
+    or RuntimeError across every Auto class — only compatibility-related exceptions
+    (ValueError, TypeError, KeyError) should fall through to the next class.
+    """
+
+    def _cfg(self):
+        return SimpleNamespace(
+            model_id="x",
+            revision="main",
+            device="cpu",
+            model_loader="transformers",
+            exemplar_embeddings_path="",
+            output_embeddings=True,
+            output_distances=True,
+        )
+
+    def test_propagates_oserror_from_first_auto_class(self):
+        from filter_huggingface_vision.backends.embedding import EmbeddingBackend
+
+        backend = EmbeddingBackend()
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=mock.MagicMock(),
+        ), mock.patch(
+            "transformers.AutoModel.from_pretrained",
+            side_effect=OSError("disk full"),
+        ):
+            with self.assertRaises(OSError):
+                backend.load(self._cfg())
+
+    def test_propagates_runtime_error_from_first_auto_class(self):
+        from filter_huggingface_vision.backends.embedding import EmbeddingBackend
+
+        backend = EmbeddingBackend()
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=mock.MagicMock(),
+        ), mock.patch(
+            "transformers.AutoModel.from_pretrained",
+            side_effect=RuntimeError("cuda oom"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                backend.load(self._cfg())
+        # Must surface the original cause, not the generic "not compatible" wrapper.
+        self.assertIn("cuda oom", str(ctx.exception).lower())
+
+    def test_retries_on_value_error_across_auto_classes(self):
+        from filter_huggingface_vision.backends.embedding import EmbeddingBackend
+
+        backend = EmbeddingBackend()
+        # First class fails with a compat error; subsequent class succeeds.
+        fake_model = mock.MagicMock()
+        fake_model.to.return_value = fake_model
+        fake_model.eval.return_value = fake_model
+        fake_model.named_children.return_value = []
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            return_value=mock.MagicMock(),
+        ), mock.patch(
+            "transformers.AutoModel.from_pretrained",
+            side_effect=ValueError("incompat"),
+        ), mock.patch(
+            "transformers.AutoModelForImageClassification.from_pretrained",
+            return_value=fake_model,
+        ):
+            backend.load(self._cfg())
+        self.assertIs(backend._model, fake_model)
+
+
+class TestGroundingDinoTextThresholdRangeCheck(unittest.TestCase):
+    """Fix #4 [NIT]: text_threshold is now a declared config field with [0.0, 1.0] range."""
+
+    def test_raises_on_out_of_range_text_threshold(self):
+        from filter_huggingface_vision.backends.grounding_dino import GroundingDinoBackend
+
+        backend = GroundingDinoBackend()
+        cfg = SimpleNamespace(
+            threshold=0.3,
+            text_threshold=1.5,
+            max_detections=100,
+            text_labels=["dog"],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            backend.run(None, 100, 100, cfg)
+        self.assertIn("text_threshold", str(ctx.exception))
+
+    def test_text_threshold_declared_on_config(self):
+        # text_threshold is now a declared, documented field (was an undocumented
+        # dict lookup before). Defaults to None so the backend can fall back to
+        # `threshold` when unset.
+        from filter_huggingface_vision.filter import FilterHuggingfaceVisionConfig
+
+        self.assertIn("text_threshold", FilterHuggingfaceVisionConfig.__annotations__)
+        self.assertIsNone(FilterHuggingfaceVisionConfig.text_threshold)
 
 
 class TestCvtColorOnlyCatchesCvError(unittest.TestCase):
