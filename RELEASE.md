@@ -4,6 +4,10 @@ Huggingface Vision filter release notes
 
 ## v0.4.7 - 2026-05-20
 
+### Changed
+
+- Bump openfilter to 1.1.0
+
 ### Fixed
 - Eight silent-failure patterns in `filter-huggingface-vision` that hid broken installs, wrong results, and CUDA fallback (PLAT-889). Each path now either raises or logs at WARNING / ERROR with enough context to debug:
   - `_image_from_frame` / `_create_visualization`: removed `try/except ImportError` around PIL/numpy/cv2 (missing hard deps now fail loudly instead of silently dropping every frame / skipping visualization).
