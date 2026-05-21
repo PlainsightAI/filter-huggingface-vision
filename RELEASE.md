@@ -2,6 +2,20 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.7 - 2026-05-20
+
+### Fixed
+- Eight silent-failure patterns in `filter-huggingface-vision` that hid broken installs, wrong results, and CUDA fallback (PLAT-889). Each path now either raises or logs at WARNING / ERROR with enough context to debug:
+  - `_image_from_frame` / `_create_visualization`: removed `try/except ImportError` around PIL/numpy/cv2 (missing hard deps now fail loudly instead of silently dropping every frame / skipping visualization).
+  - `OwlVitBackend` / `GroundingDinoBackend`: log a warning before returning `[]` when `text_labels` is empty or invalid at inference time.
+  - `_apply_meta`: replaced `assert _dt is not None` with explicit `raise ValueError` so the check survives `python -O`.
+  - `ObjectDetectionBackend` / `ImageClassificationBackend`: narrowed `except Exception` to `(ValueError, TypeError, KeyError)` so `OSError` / `MemoryError` / `ConnectionError` propagate instead of being relabeled as "model not compatible".
+  - `_image_from_frame` cv2.cvtColor: catch only `cv2.error` (with log) and propagate the rest.
+  - `process()`: log a warning when frames pass through with no initialized backend.
+
+### Added
+- `tests/test_silent_failures.py`: 17 unit tests covering every new raise/log path.
+
 ## v0.4.6 - 2026-05-01
 
 ### Fixed

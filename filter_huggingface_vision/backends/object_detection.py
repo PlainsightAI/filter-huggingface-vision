@@ -79,10 +79,19 @@ class ObjectDetectionBackend(VisionBackend):
         if not revision:
             raise ValueError("revision is required and must be non-empty.")
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
+        # Split processor / model loads so the RuntimeError names the failing component.
         try:
             self._processor = AutoImageProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
+        except (ValueError, TypeError, KeyError) as e:
+            raise RuntimeError(
+                f"Model {model_id} (revision={revision}) is not compatible with "
+                "AutoImageProcessor (object-detection preprocessing). "
+                "Use a model supported by the Transformers object-detection API."
+            ) from e
+
+        try:
             self._model = AutoModelForObjectDetection.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
@@ -93,10 +102,12 @@ class ObjectDetectionBackend(VisionBackend):
                     "Install it with: pip install timm"
                 ) from e
             raise
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             raise RuntimeError(
-                f"Model {model_id} (revision={revision}) is not compatible with AutoImageProcessor + AutoModelForObjectDetection. "
-                "Use a model supported by the Transformers object-detection API, or enable fallback when available."
+                f"Model {model_id} (revision={revision}) is not compatible with "
+                "AutoModelForObjectDetection. "
+                "Use a model supported by the Transformers object-detection API, "
+                "or enable fallback when available."
             ) from e
 
         self._model = self._model.to(self._device)

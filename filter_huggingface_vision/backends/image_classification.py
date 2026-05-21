@@ -48,17 +48,26 @@ class ImageClassificationBackend(VisionBackend):
         if not revision:
             raise ValueError("revision is required and must be non-empty.")
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
+        # Split processor / model loads so the RuntimeError names the failing component.
         try:
             self._processor = AutoImageProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
+        except (ValueError, TypeError, KeyError) as e:
+            raise RuntimeError(
+                f"Model {model_id} (revision={revision}) is not compatible with "
+                "AutoImageProcessor (image-classification preprocessing). "
+                "Use a model supported by the Transformers image-classification API."
+            ) from e
+
+        try:
             self._model = AutoModelForImageClassification.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             raise RuntimeError(
                 f"Model {model_id} (revision={revision}) is not compatible with "
-                "AutoImageProcessor + AutoModelForImageClassification. "
+                "AutoModelForImageClassification. "
                 "Use a model supported by the Transformers image-classification API."
             ) from e
 

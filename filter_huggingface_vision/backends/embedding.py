@@ -172,6 +172,9 @@ class EmbeddingBackend(VisionBackend):
 
         self._uses_hook = False
 
+        # Only retry on compatibility errors. OSError (disk/network) and RuntimeError
+        # (e.g. OOM) must propagate — retrying them across every Auto class hides the
+        # real failure and surfaces a misleading "not compatible" message.
         for cls_name in _HF_AUTO_CLASSES:
             cls = getattr(transformers, cls_name, None)
             if cls is None:
@@ -181,7 +184,7 @@ class EmbeddingBackend(VisionBackend):
                     model_id, revision=revision, trust_remote_code=False
                 )
                 break
-            except (ValueError, OSError, RuntimeError):
+            except (ValueError, TypeError, KeyError):
                 continue
         else:
             raise RuntimeError(
