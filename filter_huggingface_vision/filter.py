@@ -101,6 +101,65 @@ def _payload_to_meta_format(payload, width, height):
     return detections_meta, confidence, classification_meta
 
 
+def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
+    """Parse text_labels into (prompts, label_map).
+
+    - None -> (None, {})
+    - list -> (list(value), {})  # already list[list[str]] of prompts; no inline mapping
+    - str  -> split on prompt_delimiter into items, each "finalName<class_delimiter>prompt"
+              or a bare prompt (maps to itself). Returns ([prompts], {prompt: finalName}).
+
+    Raises ValueError on duplicate prompt mapping or unsupported type.
+    """
+    if value is None:
+        return None, {}
+    if isinstance(value, (list, tuple)):
+        return list(value), {}
+    if not isinstance(value, str):
+        raise ValueError(
+            f"text_labels must be a str, list, or None; got {type(value).__name__}."
+        )
+    prompts = []
+    label_map = {}
+    for item in value.split(prompt_delimiter):
+        item = item.strip()
+        if not item:
+            continue
+        if class_delimiter in item:
+            final_name, prompt = item.split(class_delimiter, 1)
+            final_name, prompt = final_name.strip(), prompt.strip()
+        else:
+            final_name = prompt = item
+        existing = label_map.get(prompt)
+        if existing is not None and existing != final_name:
+            raise ValueError(
+                f"Duplicate prompt mapping for '{prompt}': '{existing}' vs '{final_name}'."
+            )
+        label_map[prompt] = final_name
+        if prompt not in prompts:
+            prompts.append(prompt)
+    return [prompts], label_map
+
+
+def _apply_label_map(detections, label_map, collapse_labels_to):
+    """Rewrite each detection's 'label' to the final name. Mutates and returns detections.
+
+    Precedence: collapse_labels_to > label_map > original label. When neither is set
+    this is a no-op (negligible cost; runs once per frame on the detection list).
+    """
+    if not detections:
+        return detections
+    if collapse_labels_to:
+        for d in detections:
+            d["label"] = collapse_labels_to
+    elif label_map:
+        for d in detections:
+            final = label_map.get(d.get("label", ""))
+            if final is not None:
+                d["label"] = final
+    return detections
+
+
 def _apply_meta(meta_dict, payload, config):
     """Populate meta_dict with detection_type, task, model, and either classification or detections/detection_confidence from payload."""
     width = payload.get("image", {}).get("width")
@@ -222,6 +281,16 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
     output_embeddings: bool = True  # include raw embedding vector in frame data
     output_distances: bool = True  # include L2 distances to exemplars
+    # Class-name remapping (PLAT-1104). Lets the user choose the final class name
+    # shown in meta.detections[].class and the visualization overlay.
+    #   - text_labels may be an inline-mapping string "gun|||a handgun###gun|||a shotgun"
+    #     (parsed into model prompts + a label map); the list[list[str]] form still works.
+    #   - label_map: explicit {raw: final} rename, works for closed-vocabulary too.
+    #   - collapse_labels_to: force every detection to this single name.
+    class_delimiter: str = "|||"  # separates finalName from prompt in text_labels string
+    prompt_delimiter: str = "###"  # separates items in text_labels string
+    label_map: dict[str, str] | None = None
+    collapse_labels_to: str | None = None
 
 
 class FilterHuggingfaceVision(Filter):
@@ -315,6 +384,18 @@ class FilterHuggingfaceVision(Filter):
             output_distances=get_config_value(config, "output_distances", True)
             if get_config_value(config, "output_distances") is not None
             else get_config_value(base, "output_distances", True),
+            class_delimiter=get_config_value(config, "class_delimiter", "|||")
+            if get_config_value(config, "class_delimiter") is not None
+            else get_config_value(base, "class_delimiter", "|||"),
+            prompt_delimiter=get_config_value(config, "prompt_delimiter", "###")
+            if get_config_value(config, "prompt_delimiter") is not None
+            else get_config_value(base, "prompt_delimiter", "###"),
+            label_map=get_config_value(config, "label_map")
+            if get_config_value(config, "label_map") is not None
+            else get_config_value(base, "label_map"),
+            collapse_labels_to=get_config_value(config, "collapse_labels_to")
+            if get_config_value(config, "collapse_labels_to") is not None
+            else get_config_value(base, "collapse_labels_to"),
         )
 
         rev = getattr(config, "revision", None)
@@ -322,6 +403,36 @@ class FilterHuggingfaceVision(Filter):
             raise ValueError(
                 "revision is required and must be non-empty (reproducibility)."
             )
+
+        # Class-name remapping (PLAT-1104): parse inline text_labels syntax and
+        # build the effective label_map (inline ∪ explicit, explicit wins).
+        class_delimiter = getattr(config, "class_delimiter", "|||")
+        prompt_delimiter = getattr(config, "prompt_delimiter", "###")
+        raw_text_labels = getattr(config, "text_labels", None)
+        if isinstance(raw_text_labels, str):
+            if not class_delimiter or not prompt_delimiter:
+                raise ValueError(
+                    "class_delimiter and prompt_delimiter must be non-empty."
+                )
+            if class_delimiter == prompt_delimiter:
+                raise ValueError(
+                    "class_delimiter and prompt_delimiter must differ."
+                )
+        prompts, inline_map = _parse_text_labels(
+            raw_text_labels, class_delimiter, prompt_delimiter
+        )
+        explicit_map = getattr(config, "label_map", None)
+        if explicit_map is not None and not isinstance(explicit_map, dict):
+            raise ValueError("label_map must be a dict[str, str].")
+        collapse = getattr(config, "collapse_labels_to", None)
+        if collapse is not None and (
+            not isinstance(collapse, str) or not collapse.strip()
+        ):
+            raise ValueError(
+                "collapse_labels_to must be a non-empty string when set."
+            )
+        config["text_labels"] = prompts
+        config["label_map"] = {**inline_map, **(explicit_map or {})}
 
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
@@ -460,6 +571,13 @@ class FilterHuggingfaceVision(Filter):
                 }
             else:
                 detections = result
+                # Remap raw class names to the user's chosen final names (once,
+                # before meta + viz so both agree). No-op when unconfigured.
+                _apply_label_map(
+                    detections,
+                    getattr(config, "label_map", None),
+                    getattr(config, "collapse_labels_to", None),
+                )
                 _task = (
                     "object-detection"
                     if detection_type == "closed-vocabulary"

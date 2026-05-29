@@ -2,6 +2,17 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.8 - 2026-05-29
+
+### Added
+- Configurable **class-name remapping** for object detection (PLAT-1104). The user chooses the final class name shown in `meta.detections[].class` and the visualization overlay, instead of the model's raw label (e.g. OWL-ViT's `"a handgun"`). Three ways to configure, all optional and backward compatible:
+  - **Inline mapping** in `text_labels` (open-vocabulary), `finalName|||prompt` items joined by `###`: `text_labels="gun|||a handgun###gun|||a shotgun"` sends `a handgun`/`a shotgun` to the model but reports both as `gun`. Delimiters configurable via `class_delimiter` (default `|||`) / `prompt_delimiter` (default `###`). Mirrors `filter-sam3-detector`.
+  - **`label_map`**: explicit `{raw: final}` rename, works for closed-vocabulary models too (e.g. `{"person": "people"}`).
+  - **`collapse_labels_to`**: force every detection to a single name (e.g. `"weapon"`).
+  - Precedence: `collapse_labels_to` > `label_map` > raw label. Remapping runs once per frame before meta + visualization (~6 µs / 100 detections; negligible vs inference).
+- `scripts/weapon_label_remap.py`: demo pipeline showing the remap on a weapon-detection video.
+- `tests/test_label_remap.py`: unit tests for parsing, validation, remap precedence, and meta/visualization agreement.
+
 ## v0.4.7 - 2026-05-20
 
 ### Fixed
