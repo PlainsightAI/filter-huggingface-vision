@@ -190,6 +190,35 @@ class TestNormalizeConfigRemap(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._cfg(text_labels=[["a handgun"]], label_map={"a handgun": ""})
 
+    def test_empty_string_rejected_for_open_vocab(self):
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels="")
+
+    def test_hash_only_string_rejected_for_open_vocab(self):
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels="###")
+
+    def test_empty_delimiter_rejected_even_with_list_text_labels(self):
+        # Delimiter validation should not be silently skipped just because
+        # text_labels is in list form (delimiters still misconfigured).
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels=[["a handgun"]], class_delimiter="")
+
+    def test_list_form_with_label_map_backward_compat(self):
+        cfg = self._cfg(
+            text_labels=[["a handgun", "a shotgun"]],
+            label_map={"a handgun": "gun", "a shotgun": "gun"},
+        )
+        self.assertEqual(getattr(cfg, "text_labels"), [["a handgun", "a shotgun"]])
+        self.assertEqual(
+            getattr(cfg, "label_map"), {"a handgun": "gun", "a shotgun": "gun"}
+        )
+
+    def test_list_form_without_map_has_empty_label_map(self):
+        cfg = self._cfg(text_labels=[["a person"]])
+        self.assertEqual(getattr(cfg, "text_labels"), [["a person"]])
+        self.assertEqual(getattr(cfg, "label_map"), {})
+
 
 class TestMetaAndVizAgree(unittest.TestCase):
     """After remap, meta class and visualization overlay use the same final name."""

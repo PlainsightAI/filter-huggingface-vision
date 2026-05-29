@@ -45,6 +45,14 @@ with no rename.
 label_map = {"person": "people", "car": "vehicle"}
 ```
 
+You can also keep the existing list form of `text_labels` and rename via
+`label_map` — no need to migrate to the inline syntax:
+
+```python
+text_labels = [["a handgun", "a shotgun"]]
+label_map = {"a handgun": "gun", "a shotgun": "gun"}
+```
+
 ## Collapse everything
 
 ```python

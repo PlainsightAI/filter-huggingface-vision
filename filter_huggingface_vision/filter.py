@@ -137,7 +137,8 @@ def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
         existing = label_map.get(prompt)
         if existing is not None and existing != final_name:
             raise ValueError(
-                f"Duplicate prompt mapping for '{prompt}': '{existing}' vs '{final_name}'."
+                f"Duplicate prompt mapping in item '{item}': "
+                f"'{prompt}' -> '{existing}' vs '{final_name}'."
             )
         label_map[prompt] = final_name
         if prompt not in prompts:
@@ -412,16 +413,13 @@ class FilterHuggingfaceVision(Filter):
         # build the effective label_map (inline ∪ explicit, explicit wins).
         class_delimiter = getattr(config, "class_delimiter", "|||")
         prompt_delimiter = getattr(config, "prompt_delimiter", "###")
+        # Validate delimiters unconditionally (not only when text_labels is a
+        # string) so a misconfigured empty/equal delimiter never passes silently.
+        if not class_delimiter or not prompt_delimiter:
+            raise ValueError("class_delimiter and prompt_delimiter must be non-empty.")
+        if class_delimiter == prompt_delimiter:
+            raise ValueError("class_delimiter and prompt_delimiter must differ.")
         raw_text_labels = getattr(config, "text_labels", None)
-        if isinstance(raw_text_labels, str):
-            if not class_delimiter or not prompt_delimiter:
-                raise ValueError(
-                    "class_delimiter and prompt_delimiter must be non-empty."
-                )
-            if class_delimiter == prompt_delimiter:
-                raise ValueError(
-                    "class_delimiter and prompt_delimiter must differ."
-                )
         prompts, inline_map = _parse_text_labels(
             raw_text_labels, class_delimiter, prompt_delimiter
         )
@@ -441,8 +439,8 @@ class FilterHuggingfaceVision(Filter):
             raise ValueError(
                 "collapse_labels_to must be a non-empty string when set."
             )
-        config["text_labels"] = prompts
-        config["label_map"] = {**inline_map, **(explicit_map or {})}
+        setattr(config, "text_labels", prompts)
+        setattr(config, "label_map", {**inline_map, **(explicit_map or {})})
 
         detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
@@ -587,11 +585,10 @@ class FilterHuggingfaceVision(Filter):
                     "classifications": result["classifications"],
                 }
             else:
-                detections = result
                 # Remap raw class names to the user's chosen final names (once,
                 # before meta + viz so both agree). No-op when unconfigured.
-                _apply_label_map(
-                    detections,
+                detections = _apply_label_map(
+                    result,
                     getattr(config, "label_map", None),
                     getattr(config, "collapse_labels_to", None),
                 )
