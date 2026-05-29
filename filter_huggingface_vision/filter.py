@@ -128,6 +128,10 @@ def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
         if class_delimiter in item:
             final_name, prompt = item.split(class_delimiter, 1)
             final_name, prompt = final_name.strip(), prompt.strip()
+            if not final_name or not prompt:
+                raise ValueError(
+                    f"text_labels item '{item}' has an empty class name or prompt."
+                )
         else:
             final_name = prompt = item
         existing = label_map.get(prompt)
@@ -422,8 +426,14 @@ class FilterHuggingfaceVision(Filter):
             raw_text_labels, class_delimiter, prompt_delimiter
         )
         explicit_map = getattr(config, "label_map", None)
-        if explicit_map is not None and not isinstance(explicit_map, dict):
-            raise ValueError("label_map must be a dict[str, str].")
+        if explicit_map is not None:
+            if not isinstance(explicit_map, dict):
+                raise ValueError("label_map must be a dict[str, str].")
+            for k, v in explicit_map.items():
+                if not isinstance(k, str) or not isinstance(v, str) or not k or not v:
+                    raise ValueError(
+                        "label_map keys and values must be non-empty strings."
+                    )
         collapse = getattr(config, "collapse_labels_to", None)
         if collapse is not None and (
             not isinstance(collapse, str) or not collapse.strip()
@@ -471,6 +481,13 @@ class FilterHuggingfaceVision(Filter):
             if not isinstance(tl[0], (list, tuple)):
                 raise ValueError(
                     "text_labels must be list of list of str, e.g. [['cat', 'dog']]."
+                )
+            if not tl[0]:
+                # An empty or whitespace-only inline string parses to [[]]; reject
+                # at config time instead of degrading to zero detections per frame.
+                raise ValueError(
+                    f"detection_type='{detection_type}' requires at least one "
+                    "non-empty text label (got an empty prompt list)."
                 )
 
         if getattr(config, "trust_remote_code", False):

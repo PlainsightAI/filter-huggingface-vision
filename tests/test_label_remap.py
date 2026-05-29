@@ -87,6 +87,19 @@ class TestParseTextLabels(unittest.TestCase):
         self.assertEqual(prompts, [["a handgun", "a shotgun"]])
         self.assertEqual(label_map, {"a handgun": "gun", "a shotgun": "gun"})
 
+    def test_empty_final_name_raises(self):
+        with self.assertRaises(ValueError):
+            _parse_text_labels("|||a handgun", "|||", "###")
+
+    def test_empty_prompt_raises(self):
+        with self.assertRaises(ValueError):
+            _parse_text_labels("gun|||", "|||", "###")
+
+    def test_whitespace_only_string_yields_no_prompts(self):
+        prompts, label_map = _parse_text_labels("   ###  ", "|||", "###")
+        self.assertEqual(prompts, [[]])
+        self.assertEqual(label_map, {})
+
 
 class TestApplyLabelMap(unittest.TestCase):
     """_apply_label_map(detections, label_map, collapse_labels_to)."""
@@ -163,6 +176,20 @@ class TestNormalizeConfigRemap(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._cfg(text_labels=[["a handgun"]], collapse_labels_to=123)
 
+    def test_empty_inline_string_rejected_for_open_vocab(self):
+        # Whitespace-only inline string parses to no prompts; reject at config
+        # time instead of degrading to warned zero-detections every frame.
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels="   ")
+
+    def test_label_map_non_string_value_raises(self):
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels=[["a handgun"]], label_map={"a handgun": 123})
+
+    def test_label_map_empty_value_raises(self):
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels=[["a handgun"]], label_map={"a handgun": ""})
+
 
 class TestMetaAndVizAgree(unittest.TestCase):
     """After remap, meta class and visualization overlay use the same final name."""
@@ -197,6 +224,23 @@ class TestMetaAndVizAgree(unittest.TestCase):
         drawn = " ".join(str(c.args[1]) for c in put_text.call_args_list)
         self.assertIn("weapon", drawn)
         self.assertNotIn("handgun", drawn)
+
+
+class TestGroundingDinoLabelMismatch(unittest.TestCase):
+    """Grounding DINO can emit a sub-phrase rather than the verbatim prompt, so an
+    exact-key map no-ops. These pin that documented limitation (see docs)."""
+
+    def test_subphrase_label_does_not_match_full_prompt_key(self):
+        # Model returned "handgun"; map is keyed on the full prompt "a handgun".
+        dets = [{"label": "handgun", "score": 0.5, "box": {}}]
+        out = _apply_label_map(dets, {"a handgun": "gun"}, None)
+        self.assertEqual(out[0]["label"], "handgun")  # no-op, key mismatch
+
+    def test_collapse_labels_to_works_regardless_of_label(self):
+        # collapse_labels_to ignores keys, so it is the robust path for Grounding DINO.
+        dets = [{"label": "handgun", "score": 0.5, "box": {}}]
+        out = _apply_label_map(dets, {"a handgun": "gun"}, "weapon")
+        self.assertEqual(out[0]["label"], "weapon")
 
 
 if __name__ == "__main__":

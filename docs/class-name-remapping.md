@@ -67,6 +67,17 @@ TEXT_LABELS=gun|||a handgun###gun|||a shotgun###gun|||a pistol###gun|||a rifle
 python scripts/weapon_label_remap.py
 ```
 
+## Grounding DINO note
+
+`label_map` and inline `text_labels` mapping match the detected label against
+the map **by exact key**. OWL-ViT emits the prompt verbatim (`"a handgun"`), so
+the rename always applies. Grounding DINO (`open-vocabulary-grounding`) can emit
+a sub-phrase or token concatenation instead of the full prompt (e.g. `"handgun"`
+for the prompt `"a handgun"`), so an exact-key lookup may not match and the
+rename silently no-ops. For Grounding DINO, prefer **`collapse_labels_to`** (it
+ignores keys and always applies), or key your `label_map` on the labels the model
+actually emits.
+
 ## Scope
 
 Applies to object detection only (`open-vocabulary`,

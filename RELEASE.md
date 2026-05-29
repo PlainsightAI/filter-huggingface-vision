@@ -10,6 +10,7 @@ Huggingface Vision filter release notes
   - **`label_map`**: explicit `{raw: final}` rename, works for closed-vocabulary models too (e.g. `{"person": "people"}`).
   - **`collapse_labels_to`**: force every detection to a single name (e.g. `"weapon"`).
   - Precedence: `collapse_labels_to` > `label_map` > raw label. Remapping runs once per frame before meta + visualization (~6 µs / 100 detections; negligible vs inference).
+  - Fail-fast config validation: empty/whitespace inline `text_labels`, malformed inline items (empty class name or prompt), and non-string `label_map` keys/values are rejected at config time. Grounding DINO can emit a sub-phrase rather than the verbatim prompt, so exact-key renames may no-op there — documented, with `collapse_labels_to` as the robust path.
 - `scripts/weapon_label_remap.py`: demo pipeline showing the remap on a weapon-detection video.
 - `tests/test_label_remap.py`: unit tests for parsing, validation, remap precedence, and meta/visualization agreement.
 
