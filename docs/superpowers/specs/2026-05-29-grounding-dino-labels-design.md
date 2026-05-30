@@ -22,9 +22,24 @@ concatenated span back to a single configured phrase per box.
 
 ## Approach
 
-In `grounding_dino.py:_normalize_results`, after obtaining the raw label string for
-a box, resolve it to a single clean label using the configured phrases
-(`text_labels` for this image):
+**Opt-in, default off.** Mirroring how PLAT-1104 keeps remapping user-controlled,
+this resolution is *not* applied automatically. The model's verbatim output is
+preserved unless the user sets a new config flag:
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `resolve_grounding_labels` | `bool` | `false` | When true, collapse each box's concatenated label to a single configured phrase. |
+
+Rationale: the concatenated span is the model's actual output, and the
+collapse-to-single-phrase step is a heuristic (longest/most-specific match) that can
+pick the "wrong" synonym. Forcing it on every Grounding DINO user would silently
+transform data, so it stays explicit — the user turns it on when the cleaner label
+is what they want. Booleans arriving from env vars as strings (`"false"`) are coerced
+via a shared `as_bool` helper so they aren't treated as truthy.
+
+When enabled, in `grounding_dino.py:_normalize_results`, after obtaining the raw
+label string for a box, resolve it to a single clean label using the configured
+phrases (`text_labels` for this image):
 
 1. Build the candidate phrase list (the prompts the model was given).
 2. For the raw label string, find which configured phrases are contained in it
@@ -38,8 +53,9 @@ This is deterministic, needs no extra forward passes, and yields one configured
 phrase per box. It composes with PLAT-1104 remapping: a clean single label means
 `label_map` / inline mapping match reliably on the grounding backend.
 
-`_normalize_results` will take the configured phrase list (already passed as
-`text_labels_list`) and apply the resolution per detection.
+`_normalize_results` takes the configured phrase list (already passed as
+`text_labels_list`) plus a `resolve_labels` flag, and applies the resolution per
+detection only when the flag is set.
 
 ## Out of scope
 
@@ -52,13 +68,16 @@ phrase per box. It composes with PLAT-1104 remapping: a clean single label means
 `tests/test_grounding_dino.py` (extend) + a focused unit test of the resolver:
 
 - raw label `"a handgun a pistol a rifle"` with phrases
-  `["a handgun","a pistol","a rifle"]` → resolves to a single configured phrase
-  (longest/first); never the concatenation.
+  `["a handgun","a pistol","a rifle"]` and `resolve_labels=True` → resolves to a
+  single configured phrase (longest/first); never the concatenation.
+- **default off:** same input with `resolve_labels` unset → concatenated label
+  preserved verbatim.
 - distinct-phrase label `"a person"` → unchanged.
 - raw label containing no configured phrase → unchanged (fallback).
 - case/whitespace-insensitive match (`"A Handgun"` → `"a handgun"`).
+- `as_bool` coercion of env-style string flags (`"true"`/`"false"`/`"1"`/`""` …).
 - assert every emitted label is one of the input phrases (the ticket's
-  acceptance criterion) for the overlapping-synonyms case.
+  acceptance criterion) for the overlapping-synonyms case when opted in.
 
 Pure resolver function is unit-tested in isolation; one end-to-end test drives the
-real model on a frame to confirm no concatenated labels are emitted.
+real model on a frame to confirm no concatenated labels are emitted when enabled.
