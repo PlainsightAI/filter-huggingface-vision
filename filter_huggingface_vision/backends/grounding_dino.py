@@ -9,6 +9,29 @@ from .base import VisionBackend
 logger = logging.getLogger(__name__)
 
 
+def _resolve_label(raw_label, phrases):
+    """Resolve a (possibly concatenated) raw label to a single configured phrase.
+
+    post_process_grounded_object_detection returns, per box, the union of every
+    input phrase whose tokens matched (e.g. "a handgun a pistol a rifle"). Map that
+    span back to one configured phrase: among phrases contained in raw_label
+    (case-insensitive, whitespace-normalized substring match), pick the longest
+    (most specific), tie-breaking by configured order. If none match, return
+    raw_label unchanged (no silent data loss).
+    """
+    if not phrases:
+        return raw_label
+    raw_norm = " ".join(str(raw_label).split()).lower()
+    best = None
+    best_len = -1
+    for phrase in phrases:
+        phrase_norm = " ".join(str(phrase).split()).lower()
+        if phrase_norm and phrase_norm in raw_norm and len(phrase_norm) > best_len:
+            best = phrase
+            best_len = len(phrase_norm)
+    return best if best is not None else raw_label
+
+
 def _normalize_results(result, text_labels_list, max_detections):
     """Convert post_process_grounded_object_detection result to unified detection list."""
     out = []
@@ -27,6 +50,11 @@ def _normalize_results(result, text_labels_list, max_detections):
             labels = [tl[i] if i < len(tl) else str(i) for i in label_ids]
     if labels is None:
         labels = [str(i) for i in range(len(scores))]
+
+    # Configured phrases for this image (text_labels_list is [[...]] for one image).
+    phrases = []
+    if text_labels_list and len(text_labels_list) > 0:
+        phrases = text_labels_list[0] if isinstance(text_labels_list[0], (list, tuple)) else text_labels_list
 
     def _tolist(x):
         return x.tolist() if hasattr(x, "tolist") and callable(x.tolist) else list(x)
@@ -51,6 +79,8 @@ def _normalize_results(result, text_labels_list, max_detections):
             continue
         label = labels[i] if i < len(labels) else str(i)
         label = str(label.item()) if hasattr(label, "item") else str(label)
+        # Concatenated union span -> single configured phrase.
+        label = _resolve_label(label, phrases)
         out.append(
             {
                 "label": label,
