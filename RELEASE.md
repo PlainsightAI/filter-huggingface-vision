@@ -2,6 +2,11 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.8 - 2026-05-29
+
+### Added
+- Optional **two-stage ROI-gated detection** (PLAT-1106). A gate detector finds regions, the frame is cropped around each padded gate box, the main detector runs per crop, and boxes are remapped to full-frame coordinates — emitting normal `meta.detections` + visualization on the full frame. Lifts recall on small/occluded targets (e.g. a handgun in CCTV) that the full-frame pass misses. Config: `gate_model_id`, `gate_detection_type`, `gate_revision`, `gate_prompt`, `gate_class`, `gate_threshold`, `gate_pad` (default 0.3), `gate_max_regions` (default 5, logged when exceeded). With no `gate_model_id`, single-stage behavior is unchanged.
+
 ## v0.4.7 - 2026-05-20
 
 ### Fixed
