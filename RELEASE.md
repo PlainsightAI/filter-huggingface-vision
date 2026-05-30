@@ -2,6 +2,11 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.8 - 2026-05-29
+
+### Fixed
+- Grounding DINO (`open-vocabulary-grounding`) class labels came back as concatenated unions of every matched prompt — e.g. `"a handgun a pistol a rifle"` on every box when prompts are synonyms (PLAT-1105). Each detection now resolves to a single configured phrase (longest substring match, tie-broken by configured order; raw label kept when nothing matches), so `meta.detections[].class` is a clean single label. OWL-ViT (`open-vocabulary`) was already verbatim and is unchanged.
+
 ## v0.4.7 - 2026-05-20
 
 ### Fixed
