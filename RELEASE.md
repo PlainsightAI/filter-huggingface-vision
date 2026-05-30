@@ -2,6 +2,11 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.8 - 2026-05-30
+
+### Added
+- Configurable ROI coordinate format via `roi_format` (default `normalized`). `meta.detections[].rois` are normalized `[0,1]` floats as before; set `roi_format=pixel` to emit integer pixel coordinates instead — the format `filter-crop` consumes, so the two compose directly without a coordinate patch. Default is unchanged, so existing consumers are unaffected.
+
 ## v0.4.7 - 2026-05-20
 
 ### Fixed
