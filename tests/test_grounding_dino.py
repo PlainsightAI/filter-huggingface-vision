@@ -11,6 +11,7 @@ from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
 )
+from filter_huggingface_vision.utils import as_bool
 
 
 class TestNormalizeResultsGrounding(unittest.TestCase):
@@ -81,11 +82,10 @@ class TestResolveLabel(unittest.TestCase):
 
 
 class TestNormalizeResultsResolvesLabels(unittest.TestCase):
-    """_normalize_results emits a single configured phrase per detection."""
+    """Label resolution in _normalize_results is opt-in (resolve_labels flag)."""
 
-    def test_every_emitted_label_is_a_configured_phrase(self):
-        phrases = ["a handgun", "a pistol", "a rifle"]
-        result = {
+    def _concatenated_result(self):
+        return {
             "boxes": [[0, 0, 10, 10], [5, 5, 15, 15]],
             "scores": [0.9, 0.8],
             # Model returns the concatenated union span for each box.
@@ -94,10 +94,39 @@ class TestNormalizeResultsResolvesLabels(unittest.TestCase):
                 "a handgun a pistol a rifle",
             ],
         }
-        out = _normalize_results_grounding(result, [phrases], 100)
+
+    def test_opted_in_every_emitted_label_is_a_configured_phrase(self):
+        phrases = ["a handgun", "a pistol", "a rifle"]
+        out = _normalize_results_grounding(
+            self._concatenated_result(), [phrases], 100, resolve_labels=True
+        )
         self.assertEqual(len(out), 2)
         for d in out:
             self.assertIn(d["label"], phrases)
+
+    def test_default_off_preserves_concatenated_label(self):
+        # Opt-in feature: without resolve_labels the raw concatenated label is kept.
+        phrases = ["a handgun", "a pistol", "a rifle"]
+        out = _normalize_results_grounding(self._concatenated_result(), [phrases], 100)
+        self.assertEqual(len(out), 2)
+        for d in out:
+            self.assertEqual(d["label"], "a handgun a pistol a rifle")
+
+
+class TestAsBool(unittest.TestCase):
+    """as_bool coerces env-style config values without treating 'false' as truthy."""
+
+    def test_truthy_values(self):
+        for v in (True, 1, "1", "true", "True", "  TRUE  ", "yes", "on"):
+            self.assertIs(as_bool(v), True, msg=repr(v))
+
+    def test_falsy_values(self):
+        for v in (False, 0, "0", "false", "False", "no", "", "garbage"):
+            self.assertIs(as_bool(v), False, msg=repr(v))
+
+    def test_none_uses_default(self):
+        self.assertIs(as_bool(None), False)
+        self.assertIs(as_bool(None, default=True), True)
 
 
 class TestGroundingDinoConfig(unittest.TestCase):
