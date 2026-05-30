@@ -67,6 +67,33 @@ def _image_from_frame(frame, input_topic):
     return None, 0, 0
 
 
+def _pad_and_clamp_region(box_xyxy, pad, width, height):
+    """Expand each side of a pixel xyxy box by `pad` fraction of its w/h, clamp to
+    [0,width]x[0,height], and return (x0, y0, x1, y1) ints. Returns None if the
+    resulting region is degenerate (zero/negative width or height)."""
+    xmin, ymin, xmax, ymax = box_xyxy
+    bw = xmax - xmin
+    bh = ymax - ymin
+    x0 = xmin - bw * pad
+    y0 = ymin - bh * pad
+    x1 = xmax + bw * pad
+    y1 = ymax + bh * pad
+    x0 = int(max(0, min(x0, width)))
+    y0 = int(max(0, min(y0, height)))
+    x1 = int(max(0, min(x1, width)))
+    y1 = int(max(0, min(y1, height)))
+    if x1 <= x0 or y1 <= y0:
+        return None
+    return (x0, y0, x1, y1)
+
+
+def _remap_box_to_full(crop_box_xyxy, origin_x0, origin_y0):
+    """Translate a crop-local pixel xyxy box to full-frame pixel coords by adding the
+    crop origin offset. Returns (x0, y0, x1, y1)."""
+    cx0, cy0, cx1, cy1 = crop_box_xyxy
+    return (cx0 + origin_x0, cy0 + origin_y0, cx1 + origin_x0, cy1 + origin_y0)
+
+
 def _payload_to_meta_format(payload, width, height):
     """Convert backend payload to meta format.
     Returns (detections_meta, detection_confidence, classification_meta).
@@ -222,6 +249,17 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
     output_embeddings: bool = True  # include raw embedding vector in frame data
     output_distances: bool = True  # include L2 distances to exemplars
+    # Two-stage ROI cascade (PLAT-1106): active only when gate_model_id is set.
+    # A gate detector finds regions; the frame is cropped to each (padded) gate box
+    # and the main detector runs on each crop, boxes remapped to full-frame coords.
+    gate_model_id: str = None  # gate detector model id; None -> single-stage (default)
+    gate_detection_type: str = "closed-vocabulary"  # gate task
+    gate_revision: str = "main"  # gate model revision
+    gate_prompt: list[list[str]] | None = None  # gate text labels (required if open-vocab)
+    gate_threshold: float | None = None  # gate confidence threshold (falls back to threshold)
+    gate_class: str = None  # keep only gate detections with this class; None -> keep all
+    gate_pad: float = 0.3  # fractional padding added to each side of a gate box
+    gate_max_regions: int = 5  # cap on crops per frame (logged when exceeded)
 
 
 class FilterHuggingfaceVision(Filter):
@@ -315,6 +353,27 @@ class FilterHuggingfaceVision(Filter):
             output_distances=get_config_value(config, "output_distances", True)
             if get_config_value(config, "output_distances") is not None
             else get_config_value(base, "output_distances", True),
+            gate_model_id=get_config_value(config, "gate_model_id")
+            or get_config_value(base, "gate_model_id"),
+            gate_detection_type=get_config_value(
+                config, "gate_detection_type", "closed-vocabulary"
+            )
+            or get_config_value(base, "gate_detection_type", "closed-vocabulary"),
+            gate_revision=get_config_value(config, "gate_revision", "main")
+            or get_config_value(base, "gate_revision", "main"),
+            gate_prompt=get_config_value(config, "gate_prompt")
+            or get_config_value(base, "gate_prompt"),
+            gate_threshold=get_config_value(config, "gate_threshold")
+            if get_config_value(config, "gate_threshold") is not None
+            else get_config_value(base, "gate_threshold"),
+            gate_class=get_config_value(config, "gate_class")
+            or get_config_value(base, "gate_class"),
+            gate_pad=get_config_value(config, "gate_pad", 0.3)
+            if get_config_value(config, "gate_pad") is not None
+            else get_config_value(base, "gate_pad", 0.3),
+            gate_max_regions=get_config_value(config, "gate_max_regions", 5)
+            if get_config_value(config, "gate_max_regions") is not None
+            else get_config_value(base, "gate_max_regions", 5),
         )
 
         rev = getattr(config, "revision", None)
@@ -367,6 +426,31 @@ class FilterHuggingfaceVision(Filter):
                 "trust_remote_code=true is not allowed in this version (security)."
             )
 
+        # Two-stage ROI cascade validation (only when gate is active).
+        if getattr(config, "gate_model_id", None):
+            gate_detection_type = getattr(
+                config, "gate_detection_type", "closed-vocabulary"
+            )
+            get_backend(gate_detection_type)  # validate gate detection_type is registered
+
+            gate_pad = getattr(config, "gate_pad", 0.3)
+            if not isinstance(gate_pad, (int, float)) or gate_pad < 0:
+                raise ValueError("gate_pad must be a float >= 0.")
+
+            gate_max_regions = getattr(config, "gate_max_regions", 5)
+            if not isinstance(gate_max_regions, int) or isinstance(
+                gate_max_regions, bool
+            ) or gate_max_regions < 1:
+                raise ValueError("gate_max_regions must be a positive int.")
+
+            if gate_detection_type in ("open-vocabulary", "open-vocabulary-grounding"):
+                gp = getattr(config, "gate_prompt", None)
+                if not gp or not isinstance(gp, (list, tuple)):
+                    raise ValueError(
+                        f"gate_detection_type='{gate_detection_type}' requires "
+                        "gate_prompt (list of list of str, e.g. [['a photo of a person']])."
+                    )
+
         return config
 
     def setup(self, config: FilterHuggingfaceVisionConfig):
@@ -387,6 +471,42 @@ class FilterHuggingfaceVision(Filter):
                 "draw_visualization has no effect with detection_type='embedding' — "
                 "embedding frames have no visual output to render."
             )
+
+        # Two-stage ROI cascade (PLAT-1106): load a second backend as the gate when
+        # gate_model_id is set. The gate config reuses gate_* fields so the gate
+        # backend reads its own model_id/revision/text_labels/threshold.
+        self._gate_backend = None
+        self._gate_config = None
+        gate_model_id = getattr(config, "gate_model_id", None)
+        if gate_model_id:
+            gate_detection_type = getattr(
+                config, "gate_detection_type", "closed-vocabulary"
+            )
+            gate_threshold = getattr(config, "gate_threshold", None)
+            if gate_threshold is None:
+                gate_threshold = getattr(config, "threshold", 0.3)
+            self._gate_config = FilterHuggingfaceVisionConfig(
+                model_id=gate_model_id,
+                revision=getattr(config, "gate_revision", "main"),
+                detection_type=gate_detection_type,
+                threshold=gate_threshold,
+                text_labels=getattr(config, "gate_prompt", None),
+                device=getattr(config, "device", "cpu"),
+                max_detections=getattr(config, "max_detections", 100),
+            )
+            gate_backend_class = get_backend(gate_detection_type)
+            self._gate_backend = gate_backend_class()
+            self._gate_backend.load(self._gate_config)
+            logger.info(
+                "ROI cascade gate enabled: gate_model_id=%s gate_detection_type=%s "
+                "gate_class=%s gate_pad=%s gate_max_regions=%s",
+                gate_model_id,
+                gate_detection_type,
+                getattr(config, "gate_class", None),
+                getattr(config, "gate_pad", 0.3),
+                getattr(config, "gate_max_regions", 5),
+            )
+
         logger.info(
             "filter_huggingface_vision loaded detection_type=%s model_id=%s revision=%s",
             detection_type,
@@ -399,9 +519,66 @@ class FilterHuggingfaceVision(Filter):
         if getattr(self, "_backend", None) is not None:
             self._backend.shutdown()
         self._backend = None
+        if getattr(self, "_gate_backend", None) is not None:
+            self._gate_backend.shutdown()
+        self._gate_backend = None
+        self._gate_config = None
         self._config = None
         self._revision = None
         logger.info("FilterHuggingfaceVision shutdown complete.")
+
+    def _run_gated_detections(self, image, width, height, config):
+        """Two-stage ROI cascade: run the gate backend on the full image, crop each
+        (filtered, padded, clamped) gate region, run the main backend on each crop,
+        remap every detection box to full-frame pixel coords, and concatenate.
+        Returns a detection list in the same schema as a single main-backend run."""
+        gate_class = getattr(config, "gate_class", None)
+        gate_pad = getattr(config, "gate_pad", 0.3)
+        gate_max_regions = getattr(config, "gate_max_regions", 5)
+
+        gate_dets = self._gate_backend.run(image, width, height, self._gate_config)
+        if gate_class is not None:
+            gate_dets = [d for d in gate_dets if d.get("label") == gate_class]
+
+        # Pad + clamp each gate box; drop degenerate regions.
+        regions = []
+        for d in gate_dets:
+            box = d.get("box", {})
+            region = _pad_and_clamp_region(
+                (box.get("xmin", 0), box.get("ymin", 0),
+                 box.get("xmax", 0), box.get("ymax", 0)),
+                gate_pad, width, height,
+            )
+            if region is not None:
+                regions.append(region)
+
+        # Cap at gate_max_regions (log when dropping — no silent cap).
+        if len(regions) > gate_max_regions:
+            logger.info(
+                "ROI cascade: %d gate regions exceed gate_max_regions=%d; "
+                "dropping %d region(s)",
+                len(regions), gate_max_regions, len(regions) - gate_max_regions,
+            )
+            regions = regions[:gate_max_regions]
+
+        detections = []
+        for (x0, y0, x1, y1) in regions:
+            crop = image.crop((x0, y0, x1, y1))
+            crop_w, crop_h = x1 - x0, y1 - y0
+            crop_dets = self._backend.run(crop, crop_w, crop_h, config)
+            for det in crop_dets:
+                box = det.get("box", {})
+                rx0, ry0, rx1, ry1 = _remap_box_to_full(
+                    (box.get("xmin", 0), box.get("ymin", 0),
+                     box.get("xmax", 0), box.get("ymax", 0)),
+                    x0, y0,
+                )
+                det["box"] = {
+                    "format": box.get("format", "xyxy"),
+                    "xmin": rx0, "ymin": ry0, "xmax": rx1, "ymax": ry1,
+                }
+                detections.append(det)
+        return detections
 
     def process(self, frames: dict[str, Frame]):
         if not frames:
@@ -433,7 +610,10 @@ class FilterHuggingfaceVision(Filter):
             if image is None:
                 continue
 
-            result = self._backend.run(image, width, height, config)
+            if getattr(self, "_gate_backend", None) is not None:
+                result = self._run_gated_detections(image, width, height, config)
+            else:
+                result = self._backend.run(image, width, height, config)
             if isinstance(result, dict) and "embeddings" in result:
                 _task = "embedding"
                 _detection_type = "embedding"
