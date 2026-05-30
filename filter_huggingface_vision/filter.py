@@ -306,7 +306,8 @@ class FilterHuggingfaceVision(Filter):
             if get_config_value(config, "max_detections") is not None
             else get_config_value(base, "max_detections", 100),
             roi_format=get_config_value(config, "roi_format", "normalized")
-            or get_config_value(base, "roi_format", "normalized"),
+            or get_config_value(base, "roi_format", "normalized")
+            or "normalized",
             top_k=get_config_value(config, "top_k", 5)
             if get_config_value(config, "top_k") is not None
             else get_config_value(base, "top_k", 5),
