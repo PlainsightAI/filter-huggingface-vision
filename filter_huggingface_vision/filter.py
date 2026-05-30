@@ -67,10 +67,12 @@ def _image_from_frame(frame, input_topic):
     return None, 0, 0
 
 
-def _payload_to_meta_format(payload, width, height):
+def _payload_to_meta_format(payload, width, height, roi_format="normalized"):
     """Convert backend payload to meta format.
     Returns (detections_meta, detection_confidence, classification_meta).
-    - detections: list of {class, rois} with rois normalized [0,1]. Empty for image-classification.
+    - detections: list of {class, rois}. With roi_format="normalized" (default) rois are
+      normalized to [0,1]; with roi_format="pixel" they are integer pixel coordinates
+      (what filter-crop consumes, so the two compose without a coord patch).
     - classification_meta: for image-classification only, {classes, confidences, architecture}; else None.
     """
     detections_meta = []
@@ -82,10 +84,16 @@ def _payload_to_meta_format(payload, width, height):
         for d in payload["detections"]:
             label = d.get("label", "")
             box = d.get("box", {})
-            xmin = box.get("xmin", 0) / w
-            ymin = box.get("ymin", 0) / h
-            xmax = box.get("xmax", 0) / w
-            ymax = box.get("ymax", 0) / h
+            if roi_format == "pixel":
+                xmin = int(round(box.get("xmin", 0)))
+                ymin = int(round(box.get("ymin", 0)))
+                xmax = int(round(box.get("xmax", 0)))
+                ymax = int(round(box.get("ymax", 0)))
+            else:
+                xmin = box.get("xmin", 0) / w
+                ymin = box.get("ymin", 0) / h
+                xmax = box.get("xmax", 0) / w
+                ymax = box.get("ymax", 0) / h
             detections_meta.append({"class": label, "rois": [[xmin, ymin, xmax, ymax]]})
             scores.append(d.get("score", 0.0))
         if scores:
@@ -105,8 +113,9 @@ def _apply_meta(meta_dict, payload, config):
     """Populate meta_dict with detection_type, task, model, and either classification or detections/detection_confidence from payload."""
     width = payload.get("image", {}).get("width")
     height = payload.get("image", {}).get("height")
+    roi_format = get_config_value(config, "roi_format", "normalized")
     detections_meta, confidence, classification_meta = _payload_to_meta_format(
-        payload, width, height
+        payload, width, height, roi_format
     )
     _dt = payload.get("detection_type")
     if _dt is None:
@@ -207,6 +216,9 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     device: str = "cpu"
     trust_remote_code: bool = False
     max_detections: int = 100
+    # ROI coordinate format in meta.detections[].rois:
+    #   "normalized" (default) -> [0,1] floats; "pixel" -> integer pixel coords (filter-crop compatible).
+    roi_format: str = "normalized"
     top_k: int = 5  # for image-classification: number of top classes to return
     input_topic: str = "main"
     output_topic: str = "main"
@@ -293,6 +305,8 @@ class FilterHuggingfaceVision(Filter):
             max_detections=get_config_value(config, "max_detections", 100)
             if get_config_value(config, "max_detections") is not None
             else get_config_value(base, "max_detections", 100),
+            roi_format=get_config_value(config, "roi_format", "normalized")
+            or get_config_value(base, "roi_format", "normalized"),
             top_k=get_config_value(config, "top_k", 5)
             if get_config_value(config, "top_k") is not None
             else get_config_value(base, "top_k", 5),
@@ -337,6 +351,12 @@ class FilterHuggingfaceVision(Filter):
             t = getattr(config, "threshold", 0.3)
             if not isinstance(t, (int, float)) or t < 0 or t > 1:
                 raise ValueError("threshold must be a number in [0, 1].")
+
+        roi_format = getattr(config, "roi_format", "normalized")
+        if roi_format not in ("normalized", "pixel"):
+            raise ValueError(
+                f"roi_format must be 'normalized' or 'pixel'; got {roi_format!r}."
+            )
 
         if detection_type == "image-classification":
             tk = getattr(config, "top_k", 5)
