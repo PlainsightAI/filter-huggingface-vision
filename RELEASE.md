@@ -40,6 +40,7 @@ Huggingface Vision filter release notes
 ### Changed
 
 - Bump openfilter to 1.1.0
+- Bump openfilter to 1.1.1
 
 ## v0.4.4 - 2026-04-20
 
