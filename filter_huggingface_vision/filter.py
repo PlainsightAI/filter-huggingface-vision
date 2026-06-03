@@ -89,11 +89,18 @@ def _payload_to_meta_format(payload, width, height, roi_format="normalized"):
                 ymin = int(round(box.get("ymin", 0)))
                 xmax = int(round(box.get("xmax", 0)))
                 ymax = int(round(box.get("ymax", 0)))
+                # Models can scale boxes past the frame; clamp so negative slice
+                # indices can't silently wrap into a wrong crop downstream. Skip
+                # when the frame size is unknown (nothing to clamp against).
+                if width:
+                    xmin, xmax = max(0, min(width, xmin)), max(0, min(width, xmax))
+                if height:
+                    ymin, ymax = max(0, min(height, ymin)), max(0, min(height, ymax))
             else:
-                xmin = box.get("xmin", 0) / w
-                ymin = box.get("ymin", 0) / h
-                xmax = box.get("xmax", 0) / w
-                ymax = box.get("ymax", 0) / h
+                xmin = max(0.0, min(1.0, box.get("xmin", 0) / w))
+                ymin = max(0.0, min(1.0, box.get("ymin", 0) / h))
+                xmax = max(0.0, min(1.0, box.get("xmax", 0) / w))
+                ymax = max(0.0, min(1.0, box.get("ymax", 0) / h))
             detections_meta.append({"class": label, "rois": [[xmin, ymin, xmax, ymax]]})
             scores.append(d.get("score", 0.0))
         if scores:
@@ -357,6 +364,12 @@ class FilterHuggingfaceVision(Filter):
         if roi_format not in ("normalized", "pixel"):
             raise ValueError(
                 f"roi_format must be 'normalized' or 'pixel'; got {roi_format!r}."
+            )
+        if roi_format != "normalized" and detection_type in ("image-classification", "embedding"):
+            raise ValueError(
+                f"roi_format={roi_format!r} has no effect for "
+                f"detection_type={detection_type!r} (it produces no detections); "
+                "remove roi_format or use a detection type."
             )
 
         if detection_type == "image-classification":

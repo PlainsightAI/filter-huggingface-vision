@@ -50,9 +50,31 @@ class TestPayloadToMetaFormatRoiFormat(unittest.TestCase):
         self.assertEqual(norm, px)
         self.assertAlmostEqual(px, 0.9)
 
+    def test_pixel_clamps_to_frame_bounds(self):
+        # Boxes that scale outside [0, w] / [0, h] must be clamped so downstream
+        # consumers (filter-crop) cannot wrap a negative index into a wrong crop.
+        payload = {"detections": [{"label": "x", "score": 1.0,
+                                   "box": {"xmin": -10, "ymin": -5, "xmax": 500, "ymax": 400}}]}
+        rois = _payload_to_meta_format(payload, 400, 300, "pixel")[0][0]["rois"]
+        self.assertEqual(rois, [[0, 0, 400, 300]])
+
+    def test_pixel_unclamped_when_size_unknown(self):
+        # Without a frame size there is nothing to clamp against; leave coords as-is
+        # rather than collapsing everything to zero.
+        payload = {"detections": [{"label": "x", "score": 1.0,
+                                   "box": {"xmin": -10, "ymin": -5, "xmax": 500, "ymax": 400}}]}
+        rois = _payload_to_meta_format(payload, 0, 0, "pixel")[0][0]["rois"]
+        self.assertEqual(rois, [[-10, -5, 500, 400]])
+
+    def test_normalized_clamps_to_unit_range(self):
+        payload = {"detections": [{"label": "x", "score": 1.0,
+                                   "box": {"xmin": -10, "ymin": -5, "xmax": 500, "ymax": 400}}]}
+        rois = _payload_to_meta_format(payload, 400, 300, "normalized")[0][0]["rois"]
+        self.assertEqual(rois, [[0.0, 0.0, 1.0, 1.0]])
+
 
 class TestRoiFormatConfigValidation(unittest.TestCase):
-    def _normalize(self, roi_format):
+    def _normalize(self, roi_format, detection_type="closed-vocabulary"):
         return FilterHuggingfaceVision.normalize_config(
             FilterHuggingfaceVisionConfig(
                 id="t",
@@ -60,7 +82,7 @@ class TestRoiFormatConfigValidation(unittest.TestCase):
                 outputs="",
                 model_id="m",
                 revision="main",
-                detection_type="closed-vocabulary",
+                detection_type=detection_type,
                 roi_format=roi_format,
             )
         )
@@ -92,6 +114,18 @@ class TestRoiFormatConfigValidation(unittest.TestCase):
         # Empty string defaults to "normalized", matching the `or` fallback style
         # used for the other config fields (detection_type, device, ...).
         self.assertEqual(self._normalize("").roi_format, "normalized")
+
+    def test_rejects_pixel_for_non_detection_types(self):
+        # roi_format only affects detection payloads; setting "pixel" for a type
+        # that produces none is a silent no-op, so fail fast instead.
+        for dt in ("image-classification", "embedding"):
+            with self.assertRaises(ValueError) as ctx:
+                self._normalize("pixel", detection_type=dt)
+            self.assertIn("roi_format", str(ctx.exception))
+
+    def test_allows_normalized_for_non_detection_types(self):
+        for dt in ("image-classification", "embedding"):
+            self.assertEqual(self._normalize("normalized", detection_type=dt).roi_format, "normalized")
 
 
 if __name__ == "__main__":
