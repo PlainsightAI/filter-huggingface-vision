@@ -1,0 +1,26 @@
+name: Dismiss stale approvals on untrusted push
+
+# Dismisses APPROVED reviews when a PR authored by an untrusted contributor
+# (not an admin/maintain/write collaborator) receives new commits, so a
+# drive-by fork PR cannot carry a stale approval through a follow-up push.
+# Trusted-collaborator self-pushes do not invalidate fresh approvals.
+#
+# Uses pull_request_target so the job runs with base-repo permissions — a
+# fork-triggered pull_request workflow cannot dismiss reviews.
+
+on:
+  pull_request_target:
+    types: [synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  dismiss:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: PlainsightAI/gh-actions-public/external-review-freshness@main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          dry-run: "false"
