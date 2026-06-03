@@ -56,7 +56,8 @@ def _normalize_results(result, text_labels_list, max_detections, resolve_labels=
     if labels is None:
         labels = [str(i) for i in range(len(scores))]
 
-    # Configured phrases for this image (text_labels_list is [[...]] for one image).
+    # Configured phrases for this image (text_labels_list may be [[...]] or a flat
+    # [...] for one image; the line below handles both shapes).
     # Only populated when the user opts in; otherwise label resolution is skipped.
     phrases = []
     if resolve_labels and text_labels_list and len(text_labels_list) > 0:

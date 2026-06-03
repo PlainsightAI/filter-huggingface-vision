@@ -217,6 +217,9 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Grounding DINO only: confidence threshold for matching text tokens to boxes.
     # Defaults to `threshold` when unset. Range [0.0, 1.0].
     text_threshold: float | None = None
+    # Grounding DINO only: resolve each box's (possibly concatenated) raw label to a
+    # single configured phrase. Off by default so the model's verbatim output is kept.
+    resolve_grounding_labels: bool = False
     # Embedding extraction options (detection_type="embedding")
     model_loader: str = "transformers"  # "transformers" or "timm"
     exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
