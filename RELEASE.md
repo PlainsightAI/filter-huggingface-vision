@@ -2,9 +2,10 @@
 Huggingface Vision filter release notes
 
 
-## v0.4.8 - 2026-05-30
+## v0.4.8 - 2026-05-29
 
 ### Added
+- Opt-in Grounding DINO label resolution (PLAT-1105). With synonym prompts (e.g. `a handgun`, `a pistol`, `a rifle`), `open-vocabulary-grounding` returns each box's label as the concatenated union of every matched prompt — `"a handgun a pistol a rifle"`. Set `resolve_grounding_labels=true` to collapse each detection to a single configured phrase (longest substring match, tie-broken by configured order; raw label kept when nothing matches). **Off by default** — the model's verbatim label is preserved unless you opt in. OWL-ViT (`open-vocabulary`) is unaffected.
 - Configurable ROI coordinate format via `roi_format` (default `normalized`). `meta.detections[].rois` are normalized `[0,1]` floats as before; set `roi_format=pixel` to emit integer pixel coordinates instead — the format `filter-crop` consumes, so the two compose directly without a coordinate patch. Default is unchanged, so existing consumers are unaffected. Coordinates are clamped to the frame bounds (`[0,1]` for normalized, `[0,width]`/`[0,height]` for pixel) so an out-of-frame box can't wrap into a wrong crop downstream. Setting `roi_format=pixel` for a non-detection type (`image-classification`, `embedding`) now fails fast instead of being silently ignored.
 
 ## v0.4.7 - 2026-05-20
@@ -45,6 +46,7 @@ Huggingface Vision filter release notes
 ### Changed
 
 - Bump openfilter to 1.1.0
+- Bump openfilter to 1.1.1
 
 ## v0.4.4 - 2026-04-20
 

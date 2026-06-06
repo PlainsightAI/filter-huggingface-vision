@@ -2,15 +2,60 @@
 
 import logging
 
-from filter_huggingface_vision.utils import get_config_value, resolve_device
+from filter_huggingface_vision.utils import as_bool, get_config_value, resolve_device
 
 from .base import VisionBackend
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_results(result, text_labels_list, max_detections):
-    """Convert post_process_grounded_object_detection result to unified detection list."""
+def _phrases_for_image(text_labels_list):
+    """Configured phrases for the single image.
+
+    text_labels_list may be nested (``[[...]]``) or flat (``[...]``) for one image;
+    return the flat phrase list either way.
+    """
+    if not text_labels_list:
+        return []
+    first = text_labels_list[0]
+    return first if isinstance(first, (list, tuple)) else text_labels_list
+
+
+def _resolve_label(raw_label, phrases):
+    """Resolve a (possibly concatenated) raw label to a single configured phrase.
+
+    post_process_grounded_object_detection returns, per box, the union of every
+    input phrase whose tokens matched (e.g. "a handgun a pistol a rifle"). Map that
+    span back to one configured phrase: among phrases contained in raw_label
+    (case-insensitive, whitespace-normalized, whole-word/token-boundary match), pick
+    the longest (most specific), tie-breaking by configured order. The token-boundary
+    check avoids false positives where one phrase is a substring of another word
+    (e.g. "a cat" must not match "a caterpillar"). If none match, return raw_label
+    unchanged (no silent data loss).
+    """
+    if not phrases:
+        return raw_label
+    raw_norm = " ".join(str(raw_label).split()).lower()
+    # Pad with spaces so a phrase only matches on token boundaries (" a cat " is in
+    # " a cat a dog " but not in " a caterpillar ").
+    raw_padded = f" {raw_norm} "
+    best = None
+    best_len = -1
+    for phrase in phrases:
+        phrase_norm = " ".join(str(phrase).split()).lower()
+        if phrase_norm and f" {phrase_norm} " in raw_padded and len(phrase_norm) > best_len:
+            best = phrase
+            best_len = len(phrase_norm)
+    return best if best is not None else raw_label
+
+
+def _normalize_results(result, text_labels_list, max_detections, resolve_labels=False):
+    """Convert post_process_grounded_object_detection result to unified detection list.
+
+    When ``resolve_labels`` is True, each box's (possibly concatenated) raw label is
+    resolved to a single configured phrase via :func:`_resolve_label`. Off by default
+    so the model's verbatim output is preserved unless the user opts in.
+    """
     out = []
     boxes = result.get("boxes")
     scores = result.get("scores")
@@ -20,13 +65,18 @@ def _normalize_results(result, text_labels_list, max_detections):
         return out
     if labels is None and text_labels_list and len(text_labels_list) > 0:
         label_ids = result.get("labels")
-        tl = text_labels_list[0] if isinstance(text_labels_list[0], (list, tuple)) else text_labels_list
+        tl = _phrases_for_image(text_labels_list)
         if hasattr(label_ids, "tolist"):
             labels = [tl[i] if i < len(tl) else str(i) for i in label_ids.tolist()]
         elif isinstance(label_ids, (list, tuple)):
             labels = [tl[i] if i < len(tl) else str(i) for i in label_ids]
     if labels is None:
         labels = [str(i) for i in range(len(scores))]
+
+    # Configured phrases for this image (text_labels_list may be [[...]] or a flat
+    # [...] for one image; the line below handles both shapes).
+    # Only populated when the user opts in; otherwise label resolution is skipped.
+    phrases = _phrases_for_image(text_labels_list) if resolve_labels else []
 
     def _tolist(x):
         return x.tolist() if hasattr(x, "tolist") and callable(x.tolist) else list(x)
@@ -51,6 +101,9 @@ def _normalize_results(result, text_labels_list, max_detections):
             continue
         label = labels[i] if i < len(labels) else str(i)
         label = str(label.item()) if hasattr(label, "item") else str(label)
+        # Concatenated union span -> single configured phrase (opt-in via phrases).
+        if phrases:
+            label = _resolve_label(label, phrases)
         out.append(
             {
                 "label": label,
@@ -143,4 +196,7 @@ class GroundingDinoBackend(VisionBackend):
             target_sizes=[(h, w)],
         )
         result = results[0] if results else {}
-        return _normalize_results(result, text_labels, max_detections)
+        resolve_labels = as_bool(
+            get_config_value(config, "resolve_grounding_labels", False)
+        )
+        return _normalize_results(result, text_labels, max_detections, resolve_labels)

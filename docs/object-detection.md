@@ -46,6 +46,11 @@ Web UI: **http://localhost:8010**.
 | **THRESHOLD** | No (default: 0.3) | Detection confidence threshold in [0, 1]. Scores below this are discarded. |
 | **DRAW_VISUALIZATION** | No (default: false) | If `"true"`, the filter adds a `viz` topic with bounding boxes and labels drawn; Webvis can subscribe to both `main` and `viz`. |
 | **ROI_FORMAT** | No (default: `normalized`) | Coordinate format for `meta.detections[].rois`. `normalized` → `[0,1]` floats; `pixel` → integer pixel coordinates (what `filter-crop` consumes, so the two compose without a coordinate patch). |
+| **RESOLVE_GROUNDING_LABELS** | No (default: false) | Grounding DINO only. If `"true"`, collapse each detection's concatenated label to one configured phrase (see below). |
+
+### Grounding DINO: concatenated labels with synonym prompts
+
+With `detection_type=open-vocabulary-grounding` and synonym prompts (e.g. `a handgun`, `a pistol`, `a rifle`), Grounding DINO can label a single box with **all** matched phrases at once — `"a handgun a pistol a rifle"`. Set `resolve_grounding_labels=true` to collapse each detection to one configured phrase (the longest match, tie-broken by the order you listed them; the raw label is kept if none match). It is **off by default**, so the model's verbatim label is preserved unless you opt in. OWL-ViT (`open-vocabulary`) is unaffected.
 
 ## Output format
 
