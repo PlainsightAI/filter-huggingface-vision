@@ -144,3 +144,4 @@ entrypoint.sh
 logs/
 
 .DS_Store
+.claude/

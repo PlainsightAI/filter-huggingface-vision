@@ -85,6 +85,14 @@ When `draw_visualization=True` (in filter config):
 
 The filter uses Hugging Face `AutoImageProcessor` and `AutoModelForObjectDetection`, so any model supported by that API works (e.g. RT-DETR, DETR). The output of `post_process_object_detection` is normalized to the same schema whether the processor returns dict-style (`result["scores"]`) or attribute-style (`result.scores`) results.
 
+## Renaming class names
+
+To control the final class name shown in `meta.detections[].class` and the
+visualization (e.g. report `"person"` as `"people"`, or collapse everything to a
+single name), see [Class-name remapping](class-name-remapping). Works for both
+closed- and open-vocabulary detection.
+
 ## See also
 
+- [Class-name remapping](class-name-remapping) — choose the final class name shown in output and visualization.
 - [Supported models — Image classification](supported-models#image-classification-vit--convnext) — ViT and ConvNeXt models for image classification (`detection_type="image-classification"`).
