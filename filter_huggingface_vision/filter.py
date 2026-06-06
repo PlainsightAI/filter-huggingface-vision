@@ -257,7 +257,9 @@ class FilterHuggingfaceVision(Filter):
     Frame data:
     - Original frame data preserved (existing meta keys such as id, ts, src, src_fps are kept).
     - Processing results added to frame.data["meta"]:
-      - detections: list of { class, rois } with rois normalized [0,1] as [[xmin, ymin, xmax, ymax]]
+      - detections: list of { class, rois } as [[xmin, ymin, xmax, ymax]]. With
+        roi_format="normalized" (default) rois are normalized to [0,1]; with
+        roi_format="pixel" they are integer pixel coordinates clamped to the frame.
       - detection_confidence: mean score (or top score for image-classification)
       - classification (image-classification only): { architecture: "huggingface", classes: [...], confidences: [...] }
 
