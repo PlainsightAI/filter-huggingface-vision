@@ -80,6 +80,17 @@ class TestResolveLabel(unittest.TestCase):
     def test_empty_phrases_returns_raw_unchanged(self):
         self.assertEqual(_resolve_label("a handgun a pistol", []), "a handgun a pistol")
 
+    def test_substring_of_another_word_does_not_match(self):
+        # Token-boundary match: "a cat" must not match inside "a caterpillar".
+        self.assertEqual(
+            _resolve_label("a caterpillar", ["a cat"]), "a caterpillar"
+        )
+        self.assertEqual(_resolve_label("category", ["cat"]), "category")
+
+    def test_multi_word_phrase_matches_on_boundary(self):
+        phrases = ["a cat", "a caterpillar"]
+        self.assertEqual(_resolve_label("a cat a caterpillar", phrases), "a caterpillar")
+
 
 class TestNormalizeResultsResolvesLabels(unittest.TestCase):
     """Label resolution in _normalize_results is opt-in (resolve_labels flag)."""
@@ -161,6 +172,34 @@ class TestGroundingDinoConfig(unittest.TestCase):
         self.assertEqual(config.detection_type, "open-vocabulary-grounding")
         self.assertEqual(len(config.text_labels), 1)
         self.assertIn("person", config.text_labels[0][0])
+
+    def _grounding_cfg(self, **overrides):
+        base = dict(
+            id="test",
+            sources="",
+            outputs="",
+            model_id="openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det",
+            revision="main",
+            detection_type="open-vocabulary-grounding",
+            text_labels=[["a person", "a cup"]],
+        )
+        base.update(overrides)
+        return FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(**base)
+        )
+
+    def test_resolve_grounding_labels_survives_normalize_config(self):
+        # Explicitly reconstructed, so the flag is preserved (not just via base merge).
+        cfg = self._grounding_cfg(resolve_grounding_labels=True)
+        self.assertIs(as_bool(getattr(cfg, "resolve_grounding_labels"), False), True)
+
+    def test_resolve_grounding_labels_env_string_coerces(self):
+        cfg = self._grounding_cfg(resolve_grounding_labels="true")
+        self.assertIs(as_bool(getattr(cfg, "resolve_grounding_labels"), False), True)
+
+    def test_resolve_grounding_labels_defaults_off(self):
+        cfg = self._grounding_cfg()
+        self.assertIs(as_bool(getattr(cfg, "resolve_grounding_labels"), False), False)
 
 
 if __name__ == "__main__":

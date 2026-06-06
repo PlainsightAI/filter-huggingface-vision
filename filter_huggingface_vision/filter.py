@@ -318,6 +318,16 @@ class FilterHuggingfaceVision(Filter):
             output_distances=get_config_value(config, "output_distances", True)
             if get_config_value(config, "output_distances") is not None
             else get_config_value(base, "output_distances", True),
+            # Reconstruct these explicitly (rather than relying on the positional
+            # base passthrough) so the flag survives even if base merging changes.
+            text_threshold=get_config_value(config, "text_threshold")
+            if get_config_value(config, "text_threshold") is not None
+            else get_config_value(base, "text_threshold"),
+            resolve_grounding_labels=get_config_value(
+                config, "resolve_grounding_labels", False
+            )
+            if get_config_value(config, "resolve_grounding_labels") is not None
+            else get_config_value(base, "resolve_grounding_labels", False),
         )
 
         rev = getattr(config, "revision", None)
