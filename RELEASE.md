@@ -13,6 +13,7 @@ Huggingface Vision filter release notes
   - Fail-fast config validation: empty/whitespace inline `text_labels`, malformed inline items (empty class name or prompt), and non-string `label_map` keys/values are rejected at config time. Grounding DINO can emit a sub-phrase rather than the verbatim prompt, so exact-key renames may no-op there — documented, with `collapse_labels_to` as the robust path.
 - `scripts/weapon_label_remap.py`: demo pipeline showing the remap on a weapon-detection video.
 - `tests/test_label_remap.py`: unit tests for parsing, validation, remap precedence, and meta/visualization agreement.
+- Opt-in Grounding DINO label resolution (PLAT-1105). With synonym prompts (e.g. `a handgun`, `a pistol`, `a rifle`), `open-vocabulary-grounding` returns each box's label as the concatenated union of every matched prompt — `"a handgun a pistol a rifle"`. Set `resolve_grounding_labels=true` to collapse each detection to a single configured phrase (longest substring match, tie-broken by configured order; raw label kept when nothing matches). **Off by default** — the model's verbatim label is preserved unless you opt in. OWL-ViT (`open-vocabulary`) is unaffected.
 
 ## v0.4.7 - 2026-05-20
 
@@ -52,6 +53,7 @@ Huggingface Vision filter release notes
 ### Changed
 
 - Bump openfilter to 1.1.0
+- Bump openfilter to 1.1.1
 
 ## v0.4.4 - 2026-04-20
 

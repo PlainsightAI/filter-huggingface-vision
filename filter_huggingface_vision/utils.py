@@ -12,6 +12,22 @@ def get_config_value(obj, key, default=None):
     return getattr(obj, key, default)
 
 
+def as_bool(value, default=False):
+    """Coerce a config value to bool, accepting the string forms env vars produce.
+
+    OpenFilter passes env-sourced flags as strings, so a plain ``bool("false")``
+    would be truthy. Treat ``1``/``true``/``yes``/``on`` (case-insensitive) as True
+    and everything else as False; ``None`` returns ``default``.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 def resolve_device(device):
     """Resolve config device value to a torch.device. Falls back to CPU if CUDA is unavailable."""
     import torch

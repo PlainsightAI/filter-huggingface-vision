@@ -301,6 +301,9 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Grounding DINO only: confidence threshold for matching text tokens to boxes.
     # Defaults to `threshold` when unset. Range [0.0, 1.0].
     text_threshold: float | None = None
+    # Grounding DINO only: resolve each box's (possibly concatenated) raw label to a
+    # single configured phrase. Off by default so the model's verbatim output is kept.
+    resolve_grounding_labels: bool = False
     # Embedding extraction options (detection_type="embedding")
     model_loader: str = "transformers"  # "transformers" or "timm"
     exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
@@ -426,6 +429,16 @@ class FilterHuggingfaceVision(Filter):
             collapse_labels_to=get_config_value(config, "collapse_labels_to")
             if get_config_value(config, "collapse_labels_to") is not None
             else get_config_value(base, "collapse_labels_to"),
+            # Reconstruct these explicitly (rather than relying on the positional
+            # base passthrough) so the flag survives even if base merging changes.
+            text_threshold=get_config_value(config, "text_threshold")
+            if get_config_value(config, "text_threshold") is not None
+            else get_config_value(base, "text_threshold"),
+            resolve_grounding_labels=get_config_value(
+                config, "resolve_grounding_labels", False
+            )
+            if get_config_value(config, "resolve_grounding_labels") is not None
+            else get_config_value(base, "resolve_grounding_labels", False),
         )
 
         rev = getattr(config, "revision", None)
