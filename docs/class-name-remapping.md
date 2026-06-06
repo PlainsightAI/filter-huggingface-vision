@@ -21,8 +21,8 @@ through unchanged.
 | `text_labels` (inline string) | open-vocabulary | Rename per prompt using `finalName\|\|\|prompt` items joined by `###`. |
 | `class_delimiter` | open-vocabulary | Separator between `finalName` and `prompt` (default `\|\|\|`). |
 | `prompt_delimiter` | open-vocabulary | Separator between items (default `###`). |
-| `label_map` | any model | Explicit `{raw: final}` rename. |
-| `collapse_labels_to` | any model | Force every detection to this single name. |
+| `label_map` | any object-detection model | Explicit `{raw: final}` rename. |
+| `collapse_labels_to` | any object-detection model | Force every detection to this single name. |
 
 **Precedence:** `collapse_labels_to` > `label_map` > raw label.
 
@@ -85,6 +85,11 @@ for the prompt `"a handgun"`), so an exact-key lookup may not match and the
 rename silently no-ops. For Grounding DINO, prefer **`collapse_labels_to`** (it
 ignores keys and always applies), or key your `label_map` on the labels the model
 actually emits.
+
+> **Being lifted:** PLAT-1105 (#35) adds an opt-in `resolve_grounding_labels`
+> that maps each emitted sub-phrase back to the verbatim configured prompt before
+> the remap runs, so the exact-key `label_map` / inline lookup matches and this
+> no-op disappears when that flag is enabled.
 
 ## Scope
 

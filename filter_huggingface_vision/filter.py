@@ -114,6 +114,16 @@ def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
     if value is None:
         return None, {}
     if isinstance(value, (list, tuple)):
+        # Validate the documented list[list[str]] shape so flat lists or empty/None
+        # elements fail here with a clear message instead of deep inside transformers.
+        if not all(
+            isinstance(x, (list, tuple)) and all(isinstance(s, str) and s for s in x)
+            for x in value
+        ):
+            raise ValueError(
+                "text_labels list form must be list[list[str]] of non-empty strings, "
+                "e.g. [['a cat', 'a dog']]."
+            )
         return list(value), {}
     if not isinstance(value, str):
         raise ValueError(
@@ -126,6 +136,12 @@ def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
         if not item:
             continue
         if class_delimiter in item:
+            if item.count(class_delimiter) != 1:
+                raise ValueError(
+                    f"text_labels item '{item}' has more than one '{class_delimiter}'; "
+                    f"each item is 'finalName{class_delimiter}prompt' "
+                    f"(did you forget a '{prompt_delimiter}' between items?)."
+                )
             final_name, prompt = item.split(class_delimiter, 1)
             final_name, prompt = final_name.strip(), prompt.strip()
             if not final_name or not prompt:
@@ -137,8 +153,9 @@ def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
         existing = label_map.get(prompt)
         if existing is not None and existing != final_name:
             raise ValueError(
-                f"Duplicate prompt mapping in item '{item}': "
-                f"'{prompt}' -> '{existing}' vs '{final_name}'."
+                f"Conflicting mappings for prompt '{prompt}': already mapped to "
+                f"'{existing}', then '{item}' maps it to '{final_name}'. "
+                "Remove the duplicate or make them agree."
             )
         label_map[prompt] = final_name
         if prompt not in prompts:
@@ -147,22 +164,23 @@ def _parse_text_labels(value, class_delimiter="|||", prompt_delimiter="###"):
 
 
 def _apply_label_map(detections, label_map, collapse_labels_to):
-    """Rewrite each detection's 'label' to the final name. Mutates and returns detections.
+    """Return a new detection list with each 'label' rewritten to the final name.
 
+    Does not mutate the input list or its dicts, so a backend is free to cache or
+    reuse the detections it returns without seeing labels change underneath it.
     Precedence: collapse_labels_to > label_map > original label. When neither is set
-    this is a no-op (negligible cost; runs once per frame on the detection list).
+    the labels pass through unchanged. Runs once per frame on the detection list.
     """
     if not detections:
         return detections
     if collapse_labels_to:
-        for d in detections:
-            d["label"] = collapse_labels_to
-    elif label_map:
-        for d in detections:
-            final = label_map.get(d.get("label", ""))
-            if final is not None:
-                d["label"] = final
-    return detections
+        return [{**d, "label": collapse_labels_to} for d in detections]
+    if label_map:
+        return [
+            {**d, "label": label_map.get(d.get("label", ""), d.get("label", ""))}
+            for d in detections
+        ]
+    return [{**d} for d in detections]
 
 
 def _apply_meta(meta_dict, payload, config):
@@ -277,7 +295,9 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Zero-shot (OWL-ViT, Grounding DINO): one list of query strings per image.
     # Required when detection_type is "open-vocabulary" or "open-vocabulary-grounding".
     # Example: [["a photo of a cat", "a photo of a dog"]] for a single image.
-    text_labels: list[list[str]] | None = None
+    # str accepts the inline-mapping syntax (see normalize_config); list[list[str]]
+    # is the existing prompt form. normalize_config rewrites this to the parsed list.
+    text_labels: str | list[list[str]] | None = None
     # Grounding DINO only: confidence threshold for matching text tokens to boxes.
     # Defaults to `threshold` when unset. Range [0.0, 1.0].
     text_threshold: float | None = None
@@ -292,6 +312,11 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     #     (parsed into model prompts + a label map); the list[list[str]] form still works.
     #   - label_map: explicit {raw: final} rename, works for closed-vocabulary too.
     #   - collapse_labels_to: force every detection to this single name.
+    # Remapping applies to object-detection types only (closed-vocabulary,
+    # open-vocabulary, open-vocabulary-grounding); it is rejected at config time for
+    # image-classification / embedding. After normalize_config, text_labels holds the
+    # parsed list[list[str]] (or None) and label_map is always a dict (possibly empty),
+    # never None — so `config.label_map is None` is not a "did the user configure it" test.
     class_delimiter: str = "|||"  # separates finalName from prompt in text_labels string
     prompt_delimiter: str = "###"  # separates items in text_labels string
     label_map: dict[str, str] | None = None
@@ -411,6 +436,7 @@ class FilterHuggingfaceVision(Filter):
 
         # Class-name remapping (PLAT-1104): parse inline text_labels syntax and
         # build the effective label_map (inline ∪ explicit, explicit wins).
+        detection_type = getattr(config, "detection_type", "closed-vocabulary")
         class_delimiter = getattr(config, "class_delimiter", "|||")
         prompt_delimiter = getattr(config, "prompt_delimiter", "###")
         # Validate delimiters unconditionally (not only when text_labels is a
@@ -419,16 +445,25 @@ class FilterHuggingfaceVision(Filter):
             raise ValueError("class_delimiter and prompt_delimiter must be non-empty.")
         if class_delimiter == prompt_delimiter:
             raise ValueError("class_delimiter and prompt_delimiter must differ.")
+        # A delimiter that is a substring of the other makes parsing ambiguous (the
+        # shorter one would split inside the longer), so reject that too.
+        if class_delimiter in prompt_delimiter or prompt_delimiter in class_delimiter:
+            raise ValueError(
+                "class_delimiter and prompt_delimiter must not be substrings of each other."
+            )
+
         raw_text_labels = getattr(config, "text_labels", None)
-        prompts, inline_map = _parse_text_labels(
-            raw_text_labels, class_delimiter, prompt_delimiter
-        )
         explicit_map = getattr(config, "label_map", None)
         if explicit_map is not None:
             if not isinstance(explicit_map, dict):
                 raise ValueError("label_map must be a dict[str, str].")
             for k, v in explicit_map.items():
-                if not isinstance(k, str) or not isinstance(v, str) or not k or not v:
+                if (
+                    not isinstance(k, str)
+                    or not isinstance(v, str)
+                    or not k.strip()
+                    or not v.strip()
+                ):
                     raise ValueError(
                         "label_map keys and values must be non-empty strings."
                     )
@@ -439,10 +474,50 @@ class FilterHuggingfaceVision(Filter):
             raise ValueError(
                 "collapse_labels_to must be a non-empty string when set."
             )
+
+        # Remapping only makes sense for object-detection types. image-classification
+        # and embedding have no detections to rename, so a remap config would be
+        # silently dropped — reject it at config time instead (PLAT-889 fail-fast;
+        # see docs "Scope").
+        inline_has_mapping = (
+            isinstance(raw_text_labels, str) and class_delimiter in raw_text_labels
+        )
+        remap_requested = bool(collapse) or bool(explicit_map) or inline_has_mapping
+        if detection_type in ("image-classification", "embedding") and remap_requested:
+            raise ValueError(
+                "label_map / collapse_labels_to / inline text_labels remapping is not "
+                f"supported for detection_type='{detection_type}' (no detections to rename)."
+            )
+
+        prompts, inline_map = _parse_text_labels(
+            raw_text_labels, class_delimiter, prompt_delimiter
+        )
+        # Surface cross-source conflicts: an inline mapping and an explicit label_map
+        # that disagree on the same key. explicit still wins (documented precedence),
+        # but warn so the dropped inline rename is not silent.
+        if explicit_map:
+            conflicts = [
+                k
+                for k, v in inline_map.items()
+                if k in explicit_map and explicit_map[k] != v
+            ]
+            if conflicts:
+                logger.warning(
+                    "label_map overrides inline text_labels mapping for %s; "
+                    "explicit label_map wins.",
+                    conflicts,
+                )
+        # collapse_labels_to outranks any label_map (documented precedence). Warn when
+        # an explicit label_map is also set so the ignored map is not a silent surprise.
+        if collapse and explicit_map:
+            logger.warning(
+                "collapse_labels_to=%r is set, so label_map is ignored "
+                "(collapse_labels_to has precedence).",
+                collapse,
+            )
         setattr(config, "text_labels", prompts)
         setattr(config, "label_map", {**inline_map, **(explicit_map or {})})
 
-        detection_type = getattr(config, "detection_type", "closed-vocabulary")
         get_backend(detection_type)  # validate detection_type is registered
 
         if detection_type == "embedding":
@@ -503,6 +578,8 @@ class FilterHuggingfaceVision(Filter):
         self._backend.load(config)
         self._config = config
         self._revision = (getattr(config, "revision") or "").strip() or None
+        # One-shot guard so the Grounding DINO label-mismatch hint logs at most once.
+        self._grounding_label_mismatch_logged = False
         self.draw_visualization = getattr(config, "draw_visualization", False)
         self.visualization_topic = getattr(config, "visualization_topic", "viz")
         self.visualization_source_topic = getattr(
@@ -587,11 +664,26 @@ class FilterHuggingfaceVision(Filter):
             else:
                 # Remap raw class names to the user's chosen final names (once,
                 # before meta + viz so both agree). No-op when unconfigured.
-                detections = _apply_label_map(
-                    result,
-                    getattr(config, "label_map", None),
-                    getattr(config, "collapse_labels_to", None),
-                )
+                label_map = getattr(config, "label_map", None)
+                collapse = getattr(config, "collapse_labels_to", None)
+                detections = _apply_label_map(result, label_map, collapse)
+                # Grounding DINO can emit a sub-phrase instead of the verbatim prompt,
+                # so an exact-key label_map silently no-ops (documented limitation).
+                # Hint once at debug level so it is diagnosable without log spam.
+                if (
+                    detection_type == "open-vocabulary-grounding"
+                    and label_map
+                    and not collapse
+                    and not self._grounding_label_mismatch_logged
+                    and any(d.get("label", "") not in label_map for d in (result or []))
+                ):
+                    logger.debug(
+                        "Grounding DINO emitted labels not present in label_map (e.g. "
+                        "sub-phrases of the prompt); those renames no-op. Prefer "
+                        "collapse_labels_to, or key label_map on the emitted labels. "
+                        "See docs/class-name-remapping.md."
+                    )
+                    self._grounding_label_mismatch_logged = True
                 _task = (
                     "object-detection"
                     if detection_type == "closed-vocabulary"

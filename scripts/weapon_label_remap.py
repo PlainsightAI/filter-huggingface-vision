@@ -16,6 +16,10 @@ Two ways to rename, configured here via env:
   - Collapse everything into one name:
         COLLAPSE_LABELS_TO="weapon"
 
+If COLLAPSE_LABELS_TO is set it takes precedence and the TEXT_LABELS renaming is
+ignored (the filter logs a warning); TEXT_LABELS is still used for the prompts the
+model receives. Pick one renaming mechanism to avoid the warning.
+
 Required env: VIDEO_PATH
 Optional env: THRESHOLD (default 0.1), PORT (default 8010),
               TEXT_LABELS (default below), COLLAPSE_LABELS_TO (default unset)

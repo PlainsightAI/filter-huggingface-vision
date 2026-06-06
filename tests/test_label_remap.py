@@ -100,6 +100,20 @@ class TestParseTextLabels(unittest.TestCase):
         self.assertEqual(prompts, [[]])
         self.assertEqual(label_map, {})
 
+    def test_more_than_one_class_delimiter_raises(self):
+        # Forgetting the prompt_delimiter between items leaves two class_delimiters
+        # in one item; surface it instead of sending the literal to the model.
+        with self.assertRaises(ValueError):
+            _parse_text_labels("gun|||a handgun|||a rifle", "|||", "###")
+
+    def test_flat_list_raises(self):
+        with self.assertRaises(ValueError):
+            _parse_text_labels(["car", "dog"], "|||", "###")
+
+    def test_list_with_empty_or_non_string_element_raises(self):
+        with self.assertRaises(ValueError):
+            _parse_text_labels([["", None, "cat"]], "|||", "###")
+
 
 class TestApplyLabelMap(unittest.TestCase):
     """_apply_label_map(detections, label_map, collapse_labels_to)."""
@@ -125,6 +139,13 @@ class TestApplyLabelMap(unittest.TestCase):
     def test_none_map_passthrough(self):
         out = _apply_label_map(self._dets(), None, None)
         self.assertEqual([d["label"] for d in out], ["a handgun", "person"])
+
+    def test_does_not_mutate_input(self):
+        # A backend may cache or reuse the detections it returns; the remap must
+        # not rewrite labels underneath it.
+        dets = self._dets()
+        _apply_label_map(dets, {"person": "people"}, "weapon")
+        self.assertEqual([d["label"] for d in dets], ["a handgun", "person"])
 
 
 class TestNormalizeConfigRemap(unittest.TestCase):
@@ -219,6 +240,48 @@ class TestNormalizeConfigRemap(unittest.TestCase):
         self.assertEqual(getattr(cfg, "text_labels"), [["a person"]])
         self.assertEqual(getattr(cfg, "label_map"), {})
 
+    def test_substring_delimiters_raise(self):
+        # class_delimiter '#' is a substring of prompt_delimiter '###', which would
+        # split inside a prompt; reject the ambiguous pair.
+        with self.assertRaises(ValueError):
+            self._cfg(
+                text_labels="gun###a handgun",
+                class_delimiter="#",
+                prompt_delimiter="###",
+            )
+
+    def test_whitespace_label_map_key_raises(self):
+        with self.assertRaises(ValueError):
+            self._cfg(text_labels=[["a handgun"]], label_map={"   ": "gun"})
+
+    def test_remap_rejected_for_image_classification(self):
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="google/vit-base-patch16-224",
+                    revision="main",
+                    detection_type="image-classification",
+                    collapse_labels_to="thing",
+                )
+            )
+
+    def test_remap_rejected_for_embedding(self):
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="google/vit-base-patch16-224",
+                    revision="main",
+                    detection_type="embedding",
+                    label_map={"cat": "feline"},
+                )
+            )
+
 
 class TestMetaAndVizAgree(unittest.TestCase):
     """After remap, meta class and visualization overlay use the same final name."""
@@ -240,13 +303,15 @@ class TestMetaAndVizAgree(unittest.TestCase):
 
     def test_meta_class_uses_remapped_label(self):
         payload = self._payload()
-        _apply_label_map(payload["detections"], {"a handgun": "gun"}, None)
+        payload["detections"] = _apply_label_map(
+            payload["detections"], {"a handgun": "gun"}, None
+        )
         dets, conf, _ = _payload_to_meta_format(payload, 100, 100)
         self.assertEqual(dets[0]["class"], "gun")
 
     def test_visualization_draws_remapped_label(self):
         payload = self._payload()
-        _apply_label_map(payload["detections"], None, "weapon")
+        payload["detections"] = _apply_label_map(payload["detections"], None, "weapon")
         image = np.zeros((100, 100, 3), dtype=np.uint8)
         with mock.patch("cv2.putText") as put_text:
             _create_visualization(image, payload)
