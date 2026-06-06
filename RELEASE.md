@@ -2,6 +2,11 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.8 - 2026-05-29
+
+### Added
+- Opt-in Grounding DINO label resolution (PLAT-1105). With synonym prompts (e.g. `a handgun`, `a pistol`, `a rifle`), `open-vocabulary-grounding` returns each box's label as the concatenated union of every matched prompt — `"a handgun a pistol a rifle"`. Set `resolve_grounding_labels=true` to collapse each detection to a single configured phrase (longest substring match, tie-broken by configured order; raw label kept when nothing matches). **Off by default** — the model's verbatim label is preserved unless you opt in. OWL-ViT (`open-vocabulary`) is unaffected.
+
 ## v0.4.7 - 2026-05-20
 
 ### Fixed
