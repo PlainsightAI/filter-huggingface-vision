@@ -520,12 +520,13 @@ class FilterHuggingfaceVision(Filter):
                     "explicit label_map wins.",
                     conflicts,
                 )
-        # collapse_labels_to outranks any label_map (documented precedence). Warn when
-        # an explicit label_map is also set so the ignored map is not a silent surprise.
-        if collapse and explicit_map:
+        # collapse_labels_to outranks any rename (documented precedence). Warn when a
+        # label_map is also set — whether explicit or derived from inline text_labels —
+        # so the ignored rename is not a silent surprise.
+        if collapse and (explicit_map or inline_map):
             logger.warning(
-                "collapse_labels_to=%r is set, so label_map is ignored "
-                "(collapse_labels_to has precedence).",
+                "collapse_labels_to=%r is set, so the label_map / inline text_labels "
+                "rename is ignored (collapse_labels_to has precedence).",
                 collapse,
             )
         setattr(config, "text_labels", prompts)
