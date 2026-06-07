@@ -45,6 +45,7 @@ Web UI: **http://localhost:8010**.
 | **VIDEO_PATH** | Yes | Path to the input video file. Passed to VideoIn as `file://{VIDEO_PATH}!loop`. |
 | **THRESHOLD** | No (default: 0.3) | Detection confidence threshold in [0, 1]. Scores below this are discarded. |
 | **DRAW_VISUALIZATION** | No (default: false) | If `"true"`, the filter adds a `viz` topic with bounding boxes and labels drawn; Webvis can subscribe to both `main` and `viz`. |
+| **ROI_FORMAT** | No (default: `normalized`) | Coordinate format for `meta.detections[].rois`. `normalized` → `[0,1]` floats; `pixel` → integer pixel coordinates (what `filter-crop` consumes, so the two compose without a coordinate patch). |
 | **RESOLVE_GROUNDING_LABELS** | No (default: false) | Grounding DINO only. If `"true"`, collapse each detection's concatenated label to one configured phrase (see below). |
 
 ### Grounding DINO: concatenated labels with synonym prompts
@@ -55,7 +56,7 @@ With `detection_type=open-vocabulary-grounding` and synonym prompts (e.g. `a han
 
 Each processed frame has `frame.data["meta"]` updated. Upstream keys (`id`, `ts`, `src`, `src_fps`) are preserved. The filter adds:
 
-- **`detections`**: list of objects `{ "class": "<label>", "rois": [[xmin_norm, ymin_norm, xmax_norm, ymax_norm]] }` with coordinates normalized in [0, 1].
+- **`detections`**: list of objects `{ "class": "<label>", "rois": [[xmin, ymin, xmax, ymax]] }`. By default (`ROI_FORMAT=normalized`) coordinates are normalized in [0, 1]; with `ROI_FORMAT=pixel` they are integer pixel coordinates.
 - **`detection_confidence`**: float, mean of detection scores.
 
 Example (excerpt):
