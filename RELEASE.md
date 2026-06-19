@@ -2,6 +2,17 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.9 - 2026-06-19
+
+### Added
+- GPU install path for driver-12.8 hosts (FILTER-538): `constraints-cuda.txt` + `make install-gpu` pin `torch==2.9.1+cu128` / `torchvision==0.24.1+cu128` (mirroring the Dockerfile), so a non-Docker `pip install` no longer resolves an incompatible CUDA-13 (`cu130`) wheel that an NVIDIA driver capped at CUDA 12.8 (e.g. A10 on driver 570) cannot run — which made `torch.cuda.is_available()` return False and inference silently fall back to a slow CPU path.
+- `device="auto"` support in `resolve_device` (uses CUDA when available, otherwise CPU).
+- `tests/test_silent_failures.py`: tests for the `auto` path and the mismatch-vs-no-GPU warning.
+
+### Changed
+- `resolve_device` CPU-fallback warning now distinguishes a driver/PyTorch CUDA build mismatch (a GPU is present but `torch.cuda.is_available()` is False) from a host with no GPU, naming the installed CUDA build and the fix (`make install-gpu` / cu128 index) instead of silently degrading.
+- Docs: README CUDA/device section and `.env.example` `FILTER_DEVICE` guidance (use `cuda:1` on the shared A10 host; GPU0 runs the QSR metrics pipeline).
+
 ## v0.4.8 - 2026-05-29
 
 ### Added
