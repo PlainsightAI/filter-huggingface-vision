@@ -1,0 +1,11 @@
+# CUDA 12.8 PyTorch stack for GPU inference on hosts whose NVIDIA driver supports
+# at most CUDA 12.8 (e.g. NVIDIA A10, driver 570). Without this, `pip` may resolve a
+# CUDA-13 (cu130) torch wheel that the driver cannot run, so torch.cuda.is_available()
+# returns False and inference silently falls back to a slow CPU path (FILTER-538).
+#
+# These pins mirror the Dockerfile (TORCH_VERSION / TORCHVISION_VERSION / CUDA_SUFFIX);
+# bump both places together. Use via `make install-gpu`, or directly:
+#   pip install -e . -c constraints-cuda.txt \
+#     --extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.9.1+cu128
+torchvision==0.24.1+cu128

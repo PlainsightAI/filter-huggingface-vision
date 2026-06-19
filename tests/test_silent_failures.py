@@ -101,6 +101,56 @@ class TestResolveDeviceLogsCudaFallback(unittest.TestCase):
         self.assertTrue(any("cuda" in m.lower() for m in cm.output))
 
 
+class TestResolveDeviceMismatchAndAuto(unittest.TestCase):
+    """FILTER-538: resolve_device must (a) distinguish a driver/CUDA build mismatch
+    (GPU present but is_available() False) from a host with no GPU, and (b) support
+    device='auto'."""
+
+    def test_mismatch_logs_actionable_hint_when_gpu_present_but_unavailable(self):
+        from filter_huggingface_vision import utils
+
+        with mock.patch("torch.cuda.is_available", return_value=False), mock.patch(
+            "torch.cuda.device_count", return_value=2
+        ), mock.patch("torch.version.cuda", "13.0"):
+            with self.assertLogs("filter_huggingface_vision.utils", level="WARNING") as cm:
+                dev = utils.resolve_device("cuda")
+        self.assertEqual(dev.type, "cpu")
+        msg = " ".join(cm.output).lower()
+        self.assertIn("incompatible", msg)
+        self.assertIn("cu128", msg)
+
+    def test_no_gpu_logs_plain_warning_without_mismatch_hint(self):
+        from filter_huggingface_vision import utils
+
+        with mock.patch("torch.cuda.is_available", return_value=False), mock.patch(
+            "torch.cuda.device_count", return_value=0
+        ):
+            with self.assertLogs("filter_huggingface_vision.utils", level="WARNING") as cm:
+                dev = utils.resolve_device("cuda")
+        self.assertEqual(dev.type, "cpu")
+        msg = " ".join(cm.output).lower()
+        self.assertIn("no gpu detected", msg)
+        self.assertNotIn("incompatible", msg)
+
+    def test_auto_uses_cuda_when_available(self):
+        from filter_huggingface_vision import utils
+
+        with mock.patch("torch.cuda.is_available", return_value=True):
+            dev = utils.resolve_device("auto")
+        self.assertEqual(dev.type, "cuda")
+
+    def test_auto_falls_back_to_cpu_without_warning_when_no_gpu(self):
+        from filter_huggingface_vision import utils
+
+        # device=auto on a CPU-only host is expected and must not warn.
+        with mock.patch("torch.cuda.is_available", return_value=False), mock.patch(
+            "torch.cuda.device_count", return_value=0
+        ):
+            with self.assertNoLogs("filter_huggingface_vision.utils", level="WARNING"):
+                dev = utils.resolve_device("auto")
+        self.assertEqual(dev.type, "cpu")
+
+
 class TestBackendsDontMisattributeInfraErrors(unittest.TestCase):
     """Fix #6: object_detection and image_classification backends must not relabel
     infra errors (OSError, MemoryError, ConnectionError) as 'model not compatible'.
