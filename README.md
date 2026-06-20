@@ -114,7 +114,7 @@ PORT=8010
 | `top_k` | int | 5 | No | For image-classification: number of top classes to return (1–1000) |
 | `text_labels` | list | — | For zero-shot / grounding | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
 | `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] (not used for image-classification) |
-| `device` | string | "cpu" | No | "cpu" or "cuda" / cuda device index |
+| `device` | string | "cpu" | No | "cpu", "cuda" / cuda device index (e.g. "cuda:1"), or "auto" (CUDA when available, else CPU) |
 | `max_detections` | int | 100 | No | Maximum number of detections per frame (object detection only) |
 | `input_topic` | string | "main" | No | Topic to read frame image from |
 | `output_topic` | string | "main" | No | Topic for processed frame |
