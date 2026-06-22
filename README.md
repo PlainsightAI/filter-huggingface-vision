@@ -114,7 +114,7 @@ PORT=8010
 | `top_k` | int | 5 | No | For image-classification: number of top classes to return (1–1000) |
 | `text_labels` | list | — | For zero-shot / grounding | List of list of str, e.g. `[["a photo of a cat", "a photo of a dog"]]` |
 | `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] (not used for image-classification) |
-| `device` | string | "cpu" | No | "cpu" or "cuda" / cuda device index |
+| `device` | string | "cpu" | No | "cpu", "cuda" / cuda device index (e.g. "cuda:1"), or "auto" (CUDA when available, else CPU) |
 | `max_detections` | int | 100 | No | Maximum number of detections per frame (object detection only) |
 | `input_topic` | string | "main" | No | Topic to read frame image from |
 | `output_topic` | string | "main" | No | Topic for processed frame |
@@ -367,8 +367,14 @@ make test-coverage
 
 ### CUDA / device
 - Set `device` to `"cpu"` if no GPU is available.
-- For GPU, use `device="cuda"` or `device=0` (and ensure PyTorch is built with CUDA).
-- **Official Docker image (`linux/amd64`):** the published `plainsightai/openfilter-huggingface-vision` image installs PyTorch **CUDA 12.8** (`2.9.1+cu128`) with a matching `torchvision` and **pip constraint** so later dependency resolution cannot bump the stack to CUDA 13. A local `pip install` from PyPI still uses whatever CPU/CUDA wheels you choose; only the Docker build pins CUDA.
+- For GPU, set `device` to `"cuda"`, a specific index like `"cuda:1"` / `0`, or `"auto"` (uses CUDA when available, otherwise CPU).
+- **GPU install (non-Docker):** a plain `pip install` can resolve a CUDA-13 (`cu130`) PyTorch wheel that an older driver cannot run (e.g. an NVIDIA A10 on driver 570 supports at most CUDA 12.8). The wheel then reports `torch.cuda.is_available() == False` and inference falls back to a slow CPU path. Install a driver-compatible build with:
+  ```bash
+  make install-gpu        # torch 2.9.1+cu128 / torchvision 0.24.1+cu128 (see constraints-cuda.txt)
+  ```
+  If a GPU is present but CUDA is still unavailable, `resolve_device` logs an actionable warning naming the installed CUDA build and how to fix it, instead of silently degrading.
+- **Multi-GPU hosts:** target a free GPU explicitly, e.g. `FILTER_DEVICE=cuda:1`. On the shared `ps-2x-a10` host GPU0 is used by the QSR metrics pipeline — use `cuda:1`.
+- **Official Docker image (`linux/amd64`):** the published `plainsightai/openfilter-huggingface-vision` image installs PyTorch **CUDA 12.8** (`2.9.1+cu128`) with a matching `torchvision` and **pip constraint** so later dependency resolution cannot bump the stack to CUDA 13. A local `pip install` from PyPI still uses whatever CPU/CUDA wheels you choose; only the Docker build (or `make install-gpu`) pins CUDA.
 
 ### No detections in frame
 - Check that the input frame provides an image via `frame.rw_bgr.image` or `frame.data[input_topic]`.

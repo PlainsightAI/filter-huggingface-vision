@@ -38,6 +38,14 @@ install:  ## Install package with dev dependencies
 		--index-url https://python.openfilter.io/simple \
 		--extra-index-url https://pypi.org/simple
 
+.PHONY: install-gpu
+install-gpu:  ## Install with CUDA 12.8 PyTorch for GPU hosts (driver <= 12.8, e.g. A10); avoids an incompatible CUDA-13 wheel
+	pip install -e .[dev] \
+		-c constraints-cuda.txt \
+		--index-url https://python.openfilter.io/simple \
+		--extra-index-url https://download.pytorch.org/whl/cu128 \
+		--extra-index-url https://pypi.org/simple
+
 .PHONY: run
 run:  ## Run locally with supporting Filters in other processes
 	openfilter run ${PIPELINE}
