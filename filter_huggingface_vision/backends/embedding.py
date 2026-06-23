@@ -260,17 +260,29 @@ class EmbeddingBackend(VisionBackend):
                 data = np.load(f, allow_pickle=False)
                 # .npz access is lazy, so resolve the key inside the open file.
                 if "embeddings" in data:
-                    return data["embeddings"]
+                    embeddings = data["embeddings"]
                 elif "arr_0" in data:
-                    return data["arr_0"]
-                keys = list(data.keys())
-                if keys:
-                    return data[keys[0]]
-                raise ValueError(f"No embeddings found in {path}")
+                    embeddings = data["arr_0"]
+                else:
+                    keys = list(data.keys())
+                    if not keys:
+                        raise ValueError(f"No embeddings found in {path}")
+                    embeddings = data[keys[0]]
         except FileNotFoundError as e:
             raise FileNotFoundError(
                 f"Exemplar embeddings file not found: {path}"
             ) from e
+
+        # A bank that loads but is empty/non-2D is the same silent-empty-bank
+        # hazard as a missing file: it would crash min_exemplar_distance on
+        # every frame (np.linalg.norm(..., axis=1) over a 0-row / 1D array).
+        # Fail loudly here with the shape instead.
+        if embeddings.ndim != 2 or embeddings.shape[0] == 0:
+            raise ValueError(
+                f"Exemplar bank at {path} must be a non-empty 2D array "
+                f"(N, dim); got shape {tuple(embeddings.shape)}."
+            )
+        return embeddings
 
     # ------------------------------------------------------------------
     # Inference

@@ -282,6 +282,33 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
         self.assertIn("Exemplar embeddings file not found", str(ctx.exception))
         self.assertIn("memory://does-not-exist.npz", str(ctx.exception))
 
+    def test_load_exemplars_empty_bank_raises(self):
+        """A bank that loads as a 0-row array must raise at load time, not crash
+        per-frame in min_exemplar_distance (the silent-empty-bank failure)."""
+        import fsspec
+
+        uri = "memory://empty-bank.npz"
+        with fsspec.open(uri, "wb") as f:
+            np.savez(f, embeddings=np.empty((0, 384), dtype=np.float32))
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with self.assertRaises(ValueError) as ctx:
+            backend._load_exemplars(uri)
+        self.assertIn("(0, 384)", str(ctx.exception))
+
+    def test_load_exemplars_non_2d_bank_raises(self):
+        """A 1D bank would make np.linalg.norm(..., axis=1) raise per-frame; reject
+        it at load time instead."""
+        import fsspec
+
+        uri = "memory://flat-bank.npz"
+        with fsspec.open(uri, "wb") as f:
+            np.savez(f, embeddings=np.zeros((384,), dtype=np.float32))
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with self.assertRaises(ValueError):
+            backend._load_exemplars(uri)
+
     def test_hook_fn_captures_tensor(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
         backend._hooked_output = {}
