@@ -309,6 +309,48 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
         with self.assertRaises(ValueError):
             backend._load_exemplars(uri)
 
+    def test_load_exemplars_gs_uri_dispatches_through_fsspec(self):
+        """A gs:// URI is passed verbatim to fsspec.open (which routes it to
+        gcsfs) and the returned handle is loaded — gcsfs stand-in for in-pod."""
+        import contextlib
+        import io
+
+        arr = np.arange(4 * 16, dtype=np.float32).reshape(4, 16)
+        seen = []
+
+        @contextlib.contextmanager
+        def fake_open(path, mode="rb"):
+            seen.append(path)
+            buf = io.BytesIO()
+            np.savez(buf, embeddings=arr)
+            buf.seek(0)
+            yield buf
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with patch("filter_huggingface_vision.backends.embedding.fsspec.open", fake_open):
+            loaded = backend._load_exemplars("gs://bucket/bank.npz")
+
+        self.assertEqual(seen, ["gs://bucket/bank.npz"])  # routed unchanged
+        np.testing.assert_array_equal(loaded, arr)
+
+    def test_load_exemplars_gs_permission_error_propagates(self):
+        """gcsfs maps a 403 (the likely in-pod workload-identity misconfig) to
+        OSError; it must propagate loudly, never become a silent empty bank."""
+        import contextlib
+
+        @contextlib.contextmanager
+        def forbidden(path, mode="rb"):
+            raise OSError("Forbidden")
+            yield  # unreachable; makes this a valid context manager
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with patch("filter_huggingface_vision.backends.embedding.fsspec.open", forbidden):
+            with self.assertRaises(OSError) as ctx:
+                backend._load_exemplars("gs://bucket/bank.npz")
+        # Not swallowed / not remapped to FileNotFoundError.
+        self.assertNotIsInstance(ctx.exception, FileNotFoundError)
+        self.assertIn("Forbidden", str(ctx.exception))
+
     def test_hook_fn_captures_tensor(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
         backend._hooked_output = {}
