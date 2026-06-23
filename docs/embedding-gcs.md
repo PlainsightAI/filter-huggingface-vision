@@ -11,7 +11,7 @@ so the bank can live in a bucket and be read in-pod — no need to bake it into
 the image.
 
 ```python
-exemplar_embeddings_path="gs://protege-artifacts-production/drift-detection/bank.npz"
+exemplar_embeddings_path="gs://YOUR_BUCKET/drift-detection/bank.npz"
 ```
 
 Loading goes through [`fsspec`](https://filesystem-spec.readthedocs.io/) +
@@ -19,8 +19,11 @@ Loading goes through [`fsspec`](https://filesystem-spec.readthedocs.io/) +
 `gs://` sources. The `.npz` key resolution is unchanged: `embeddings` →
 `arr_0` → first key, shape `(N, dim)`.
 
-A missing or unreadable bank **raises** (`FileNotFoundError`) — it never falls
-back to an empty bank, which would make every frame look like maximal drift.
+A missing bank raises `FileNotFoundError`; other failures (permission denied,
+corrupt archive, network error) raise loudly too — as their own error types,
+not necessarily `FileNotFoundError`. A bank that loads but is empty or non-2D
+raises `ValueError` at init. The loader never falls back to an empty bank,
+which would make every frame look like maximal drift.
 
 ## Credentials (workload identity / ADC)
 
@@ -34,7 +37,7 @@ The only IAM the filter needs is object read on the bucket:
 ```bash
 gsutil iam ch \
   serviceAccount:SA_NAME@PROJECT.iam.gserviceaccount.com:roles/storage.objectViewer \
-  gs://protege-artifacts-production
+  gs://YOUR_BUCKET
 ```
 
 (`roles/storage.objectViewer` is sufficient — the filter only reads the bank.)
