@@ -26,7 +26,7 @@ services:
 
   filter_huggingface_vision:
     # compose tracks the latest published image; bump alongside VERSION on release.
-    image: plainsightai/openfilter-huggingface-vision:0.4.9
+    image: plainsightai/openfilter-huggingface-vision:0.4.10
     env_file:
       - .env
     environment:
