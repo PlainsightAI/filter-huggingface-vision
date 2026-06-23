@@ -19,6 +19,21 @@ Loading goes through [`fsspec`](https://filesystem-spec.readthedocs.io/) +
 `gs://` sources. The `.npz` key resolution is unchanged: `embeddings` →
 `arr_0` → first key, shape `(N, dim)`.
 
+## Installing the `gs://` driver
+
+`gcsfs` is an optional extra so installs that never touch object storage stay
+lean. The published **Docker image already bundles it**, so docker-compose /
+in-pod usage needs nothing extra. For a plain `pip` install, add the `[gcs]`
+extra when you want `gs://` support:
+
+```bash
+pip install "filter-huggingface-vision[gcs]"
+```
+
+Without it, a `gs://` path fails loudly with fsspec's
+`ImportError: Please install gcsfs to access Google Storage` (local and
+`file://` paths still work without the extra).
+
 A missing bank raises `FileNotFoundError`; other failures (permission denied,
 corrupt archive, network error) raise loudly too — as their own error types,
 not necessarily `FileNotFoundError`. A bank that loads but is empty or non-2D

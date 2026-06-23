@@ -10,7 +10,7 @@ Huggingface Vision filter release notes
 - `tests/test_embedding.py`: remote-URI load and remote-missing-raises tests (via fsspec `memory://`, no real GCS needed).
 
 ### Changed
-- Added `fsspec` and `gcsfs` to dependencies.
+- Added `fsspec` to core dependencies. `gcsfs` (the `gs://` driver) is an optional `[gcs]` extra so object-detection-only installs stay lean; the Docker image bundles it, so docker-compose / in-pod usage is unchanged. Plain `pip` users add it with `pip install "filter-huggingface-vision[gcs]"`.
 
 ## v0.4.9 - 2026-06-19
 

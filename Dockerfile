@@ -51,10 +51,10 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
         --index-url https://python.openfilter.io/simple \
         $PYTORCH_EXTRA \
         --extra-index-url https://pypi.org/simple \
-        "filter-huggingface-vision==${INSTALL_VER}"; then \
-      echo "Installed filter-huggingface-vision==${INSTALL_VER} from index"; \
+        "filter-huggingface-vision[gcs]==${INSTALL_VER}"; then \
+      echo "Installed filter-huggingface-vision[gcs]==${INSTALL_VER} from index"; \
     else \
-      echo "filter-huggingface-vision==${INSTALL_VER} not on index yet; falling back to local source (dry-run / pre-publish build)"; \
+      echo "filter-huggingface-vision[gcs]==${INSTALL_VER} not on index yet; falling back to local source (dry-run / pre-publish build)"; \
       # /src is bind-mounted read-only; setuptools writes egg-info during the build, so copy first. \
       cp -r /src /tmp/build && \
       pip install --no-cache-dir \
@@ -62,7 +62,7 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
         --index-url https://python.openfilter.io/simple \
         $PYTORCH_EXTRA \
         --extra-index-url https://pypi.org/simple \
-        /tmp/build; \
+        "/tmp/build[gcs]"; \
     fi && \
     if [ "$PLAT" = "linux/amd64" ]; then \
       python -c "import torch; assert torch.version.cuda is not None, 'CUDA torch not installed'"; \
