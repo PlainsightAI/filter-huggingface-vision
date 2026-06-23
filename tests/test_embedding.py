@@ -247,6 +247,27 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             backend._load_exemplars("/nonexistent/path.npz")
 
+    def test_load_exemplars_remote_uri(self):
+        """Remote URIs (gs://, etc.) load via fsspec; memory:// stands in for GCS."""
+        import fsspec
+
+        embeddings = np.random.randn(7, 384).astype(np.float32)
+        uri = "memory://exemplars-remote.npz"
+        with fsspec.open(uri, "wb") as f:
+            np.savez(f, embeddings=embeddings)
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        loaded = backend._load_exemplars(uri)
+
+        self.assertEqual(loaded.shape, (7, 384))
+        np.testing.assert_array_equal(loaded, embeddings)
+
+    def test_load_exemplars_remote_missing_raises(self):
+        """A missing remote bank must raise, never return a silent empty array."""
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with self.assertRaises(FileNotFoundError):
+            backend._load_exemplars("memory://does-not-exist.npz")
+
     def test_hook_fn_captures_tensor(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
         backend._hooked_output = {}

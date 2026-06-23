@@ -33,6 +33,7 @@ dependencies = [
   "pillow",
   "huggingface-hub",
   "python-dotenv",
+  "gcsfs",
 ]
 
 [project.optional-dependencies]

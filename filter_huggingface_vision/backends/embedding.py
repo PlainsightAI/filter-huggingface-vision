@@ -12,8 +12,8 @@ Model loading:
 """
 
 import logging
-import os
 
+import fsspec
 import numpy as np
 import torch
 import torch.nn as nn
@@ -244,16 +244,21 @@ class EmbeddingBackend(VisionBackend):
     # ------------------------------------------------------------------
 
     def _load_exemplars(self, path: str) -> np.ndarray:
-        """Load exemplar embeddings from an .npz file."""
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Exemplar embeddings file not found: {path}")
+        """Load exemplar embeddings from an .npz file.
 
-        data = np.load(path)
-        if "embeddings" in data:
-            return data["embeddings"]
-        elif "arr_0" in data:
-            return data["arr_0"]
-        else:
+        Accepts local paths and any fsspec URI (e.g. ``gs://bucket/bank.npz``).
+        For ``gs://`` URIs, gcsfs auto-discovers credentials via the pod's
+        workload identity / ADC. A missing or unreadable bank raises loudly
+        rather than yielding a silent empty bank — an empty bank would make
+        every frame look like drift.
+        """
+        with fsspec.open(path, "rb") as f:
+            data = np.load(f, allow_pickle=False)
+            # .npz access is lazy, so resolve the key inside the open file.
+            if "embeddings" in data:
+                return data["embeddings"]
+            elif "arr_0" in data:
+                return data["arr_0"]
             keys = list(data.keys())
             if keys:
                 return data[keys[0]]
