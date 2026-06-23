@@ -10,7 +10,7 @@ Huggingface Vision filter release notes
 - `tests/test_embedding.py`: remote-URI load and remote-missing-raises tests (via fsspec `memory://`, no real GCS needed).
 
 ### Changed
-- Added `gcsfs` (pulls `fsspec`) to dependencies.
+- Added `fsspec` and `gcsfs` to dependencies.
 
 ## v0.4.9 - 2026-06-19
 

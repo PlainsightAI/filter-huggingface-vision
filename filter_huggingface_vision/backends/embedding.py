@@ -252,17 +252,25 @@ class EmbeddingBackend(VisionBackend):
         rather than yielding a silent empty bank — an empty bank would make
         every frame look like drift.
         """
-        with fsspec.open(path, "rb") as f:
-            data = np.load(f, allow_pickle=False)
-            # .npz access is lazy, so resolve the key inside the open file.
-            if "embeddings" in data:
-                return data["embeddings"]
-            elif "arr_0" in data:
-                return data["arr_0"]
-            keys = list(data.keys())
-            if keys:
-                return data[keys[0]]
-            raise ValueError(f"No embeddings found in {path}")
+        try:
+            # fsspec.open is lazy; a missing object (local or gs://) raises on
+            # entering the context. Re-raise with the bank's path so a typo'd
+            # URI is actionable rather than a bare fsspec path.
+            with fsspec.open(path, "rb") as f:
+                data = np.load(f, allow_pickle=False)
+                # .npz access is lazy, so resolve the key inside the open file.
+                if "embeddings" in data:
+                    return data["embeddings"]
+                elif "arr_0" in data:
+                    return data["arr_0"]
+                keys = list(data.keys())
+                if keys:
+                    return data[keys[0]]
+                raise ValueError(f"No embeddings found in {path}")
+        except FileNotFoundError as e:
+            raise FileNotFoundError(
+                f"Exemplar embeddings file not found: {path}"
+            ) from e
 
     # ------------------------------------------------------------------
     # Inference

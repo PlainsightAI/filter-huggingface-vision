@@ -228,6 +228,15 @@ class TestEmbeddingFilter(unittest.TestCase):
 class TestEmbeddingBackendUnit(unittest.TestCase):
     """Unit tests for the EmbeddingBackend class."""
 
+    def tearDown(self):
+        # The fsspec memory filesystem is a process-global store; clear it so
+        # banks written by remote-URI tests don't leak into other tests.
+        import fsspec
+
+        mem = fsspec.filesystem("memory")
+        mem.store.clear()
+        mem.pseudo_dirs.clear()
+
     def test_load_exemplars_with_embeddings_key(self):
         import tempfile
 
@@ -244,8 +253,11 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
 
     def test_load_exemplars_file_not_found(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(FileNotFoundError) as ctx:
             backend._load_exemplars("/nonexistent/path.npz")
+        # Actionable message: names the subsystem and the offending path.
+        self.assertIn("Exemplar embeddings file not found", str(ctx.exception))
+        self.assertIn("/nonexistent/path.npz", str(ctx.exception))
 
     def test_load_exemplars_remote_uri(self):
         """Remote URIs (gs://, etc.) load via fsspec; memory:// stands in for GCS."""
@@ -265,8 +277,10 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
     def test_load_exemplars_remote_missing_raises(self):
         """A missing remote bank must raise, never return a silent empty array."""
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(FileNotFoundError) as ctx:
             backend._load_exemplars("memory://does-not-exist.npz")
+        self.assertIn("Exemplar embeddings file not found", str(ctx.exception))
+        self.assertIn("memory://does-not-exist.npz", str(ctx.exception))
 
     def test_hook_fn_captures_tensor(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
