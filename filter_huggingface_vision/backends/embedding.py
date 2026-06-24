@@ -12,8 +12,8 @@ Model loading:
 """
 
 import logging
-import os
 
+import fsspec
 import numpy as np
 import torch
 import torch.nn as nn
@@ -244,20 +244,45 @@ class EmbeddingBackend(VisionBackend):
     # ------------------------------------------------------------------
 
     def _load_exemplars(self, path: str) -> np.ndarray:
-        """Load exemplar embeddings from an .npz file."""
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Exemplar embeddings file not found: {path}")
+        """Load exemplar embeddings from an .npz file.
 
-        data = np.load(path)
-        if "embeddings" in data:
-            return data["embeddings"]
-        elif "arr_0" in data:
-            return data["arr_0"]
-        else:
-            keys = list(data.keys())
-            if keys:
-                return data[keys[0]]
-            raise ValueError(f"No embeddings found in {path}")
+        Accepts local paths and any fsspec URI (e.g. ``gs://bucket/bank.npz``).
+        For ``gs://`` URIs, gcsfs auto-discovers credentials via the pod's
+        workload identity / ADC. A missing or unreadable bank raises loudly
+        rather than yielding a silent empty bank — an empty bank would make
+        every frame look like drift.
+        """
+        try:
+            # fsspec.open is lazy; a missing object (local or gs://) raises on
+            # entering the context. Re-raise with the bank's path so a typo'd
+            # URI is actionable rather than a bare fsspec path.
+            with fsspec.open(path, "rb") as f:
+                data = np.load(f, allow_pickle=False)
+                # .npz access is lazy, so resolve the key inside the open file.
+                if "embeddings" in data:
+                    embeddings = data["embeddings"]
+                elif "arr_0" in data:
+                    embeddings = data["arr_0"]
+                else:
+                    keys = list(data.keys())
+                    if not keys:
+                        raise ValueError(f"No embeddings found in {path}")
+                    embeddings = data[keys[0]]
+        except FileNotFoundError as e:
+            raise FileNotFoundError(
+                f"Exemplar embeddings file not found: {path}"
+            ) from e
+
+        # A bank that loads but is empty/non-2D is the same silent-empty-bank
+        # hazard as a missing file: it would crash min_exemplar_distance on
+        # every frame (np.linalg.norm(..., axis=1) over a 0-row / 1D array).
+        # Fail loudly here with the shape instead.
+        if embeddings.ndim != 2 or embeddings.shape[0] == 0:
+            raise ValueError(
+                f"Exemplar bank at {path} must be a non-empty 2D array "
+                f"(N, dim); got shape {tuple(embeddings.shape)}."
+            )
+        return embeddings
 
     # ------------------------------------------------------------------
     # Inference

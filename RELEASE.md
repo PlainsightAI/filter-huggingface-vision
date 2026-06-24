@@ -2,6 +2,16 @@
 Huggingface Vision filter release notes
 
 
+## v0.4.10 - 2026-06-23
+
+### Added
+- The `embedding` backend can load its exemplar bank (`.npz`) from a `gs://` URI in addition to local paths (FILTER-539). `exemplar_embeddings_path` now flows through `fsspec.open` + `gcsfs`, giving one code path for local, `file://`, and `gs://` sources; the bank is read in-pod via workload identity / ADC, with no key material in config. `.npz` key resolution is unchanged (`embeddings` → `arr_0` → first key). A missing bank raises `FileNotFoundError` (other failures — permission denied, corrupt archive — raise loudly too, as their own types), and a bank that loads but is empty / non-2D raises `ValueError` at load time — rather than yielding a silent empty bank that crashes `min_exemplar_distance` per frame (which would make every frame look like maximal drift).
+- `docs/embedding-gcs.md`: `gs://` usage, the `roles/storage.objectViewer` IAM requirement, and a local mount/bake demo fallback.
+- `tests/test_embedding.py`: remote-URI load and remote-missing-raises tests (via fsspec `memory://`, no real GCS needed).
+
+### Changed
+- Added `fsspec` to core dependencies. `gcsfs` (the `gs://` driver) is an optional `[gcs]` extra so object-detection-only installs stay lean; the Docker image bundles it, so docker-compose / in-pod usage is unchanged. Plain `pip` users add it with `pip install "filter-huggingface-vision[gcs]"`.
+
 ## v0.4.9 - 2026-06-19
 
 ### Added

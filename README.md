@@ -124,7 +124,7 @@ PORT=8010
 | `visualization_source_topic` | string | — | No | Optional source topic for viz image |
 
 | `model_loader` | string | "transformers" | No | For `embedding` type: `"transformers"` or `"timm"` — how to load the model |
-| `exemplar_embeddings_path` | string | — | No | For `embedding` type: path to `.npz` file with reference embeddings |
+| `exemplar_embeddings_path` | string | — | No | For `embedding` type: path to `.npz` file with reference embeddings. Accepts a local path or a `gs://bucket/bank.npz` URI (read via workload identity / ADC; `gs://` needs the `[gcs]` extra, bundled in the Docker image — see [docs/embedding-gcs.md](docs/embedding-gcs.md)) |
 | `output_embeddings` | bool | true | No | For `embedding` type: include raw embedding vector in frame data |
 | `output_distances` | bool | true | No | For `embedding` type: include `min_exemplar_distance` (requires exemplars) |
 

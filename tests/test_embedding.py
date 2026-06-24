@@ -228,6 +228,15 @@ class TestEmbeddingFilter(unittest.TestCase):
 class TestEmbeddingBackendUnit(unittest.TestCase):
     """Unit tests for the EmbeddingBackend class."""
 
+    def tearDown(self):
+        # The fsspec memory filesystem is a process-global store; clear it so
+        # banks written by remote-URI tests don't leak into other tests.
+        import fsspec
+
+        mem = fsspec.filesystem("memory")
+        mem.store.clear()
+        mem.pseudo_dirs.clear()
+
     def test_load_exemplars_with_embeddings_key(self):
         import tempfile
 
@@ -244,8 +253,103 @@ class TestEmbeddingBackendUnit(unittest.TestCase):
 
     def test_load_exemplars_file_not_found(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(FileNotFoundError) as ctx:
             backend._load_exemplars("/nonexistent/path.npz")
+        # Actionable message: names the subsystem and the offending path.
+        self.assertIn("Exemplar embeddings file not found", str(ctx.exception))
+        self.assertIn("/nonexistent/path.npz", str(ctx.exception))
+
+    def test_load_exemplars_remote_uri(self):
+        """Remote URIs (gs://, etc.) load via fsspec; memory:// stands in for GCS."""
+        import fsspec
+
+        embeddings = np.random.randn(7, 384).astype(np.float32)
+        uri = "memory://exemplars-remote.npz"
+        with fsspec.open(uri, "wb") as f:
+            np.savez(f, embeddings=embeddings)
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        loaded = backend._load_exemplars(uri)
+
+        self.assertEqual(loaded.shape, (7, 384))
+        np.testing.assert_array_equal(loaded, embeddings)
+
+    def test_load_exemplars_remote_missing_raises(self):
+        """A missing remote bank must raise, never return a silent empty array."""
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with self.assertRaises(FileNotFoundError) as ctx:
+            backend._load_exemplars("memory://does-not-exist.npz")
+        self.assertIn("Exemplar embeddings file not found", str(ctx.exception))
+        self.assertIn("memory://does-not-exist.npz", str(ctx.exception))
+
+    def test_load_exemplars_empty_bank_raises(self):
+        """A bank that loads as a 0-row array must raise at load time, not crash
+        per-frame in min_exemplar_distance (the silent-empty-bank failure)."""
+        import fsspec
+
+        uri = "memory://empty-bank.npz"
+        with fsspec.open(uri, "wb") as f:
+            np.savez(f, embeddings=np.empty((0, 384), dtype=np.float32))
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with self.assertRaises(ValueError) as ctx:
+            backend._load_exemplars(uri)
+        self.assertIn("(0, 384)", str(ctx.exception))
+
+    def test_load_exemplars_non_2d_bank_raises(self):
+        """A 1D bank would make np.linalg.norm(..., axis=1) raise per-frame; reject
+        it at load time instead."""
+        import fsspec
+
+        uri = "memory://flat-bank.npz"
+        with fsspec.open(uri, "wb") as f:
+            np.savez(f, embeddings=np.zeros((384,), dtype=np.float32))
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with self.assertRaises(ValueError):
+            backend._load_exemplars(uri)
+
+    def test_load_exemplars_gs_uri_dispatches_through_fsspec(self):
+        """A gs:// URI is passed verbatim to fsspec.open (which routes it to
+        gcsfs) and the returned handle is loaded — gcsfs stand-in for in-pod."""
+        import contextlib
+        import io
+
+        arr = np.arange(4 * 16, dtype=np.float32).reshape(4, 16)
+        seen = []
+
+        @contextlib.contextmanager
+        def fake_open(path, mode="rb"):
+            seen.append(path)
+            buf = io.BytesIO()
+            np.savez(buf, embeddings=arr)
+            buf.seek(0)
+            yield buf
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with patch("filter_huggingface_vision.backends.embedding.fsspec.open", fake_open):
+            loaded = backend._load_exemplars("gs://bucket/bank.npz")
+
+        self.assertEqual(seen, ["gs://bucket/bank.npz"])  # routed unchanged
+        np.testing.assert_array_equal(loaded, arr)
+
+    def test_load_exemplars_gs_permission_error_propagates(self):
+        """gcsfs maps a 403 (the likely in-pod workload-identity misconfig) to
+        OSError; it must propagate loudly, never become a silent empty bank."""
+        import contextlib
+
+        @contextlib.contextmanager
+        def forbidden(path, mode="rb"):
+            raise OSError("Forbidden")
+            yield  # unreachable; makes this a valid context manager
+
+        backend = EmbeddingBackend.__new__(EmbeddingBackend)
+        with patch("filter_huggingface_vision.backends.embedding.fsspec.open", forbidden):
+            with self.assertRaises(OSError) as ctx:
+                backend._load_exemplars("gs://bucket/bank.npz")
+        # Not swallowed / not remapped to FileNotFoundError.
+        self.assertNotIsInstance(ctx.exception, FileNotFoundError)
+        self.assertIn("Forbidden", str(ctx.exception))
 
     def test_hook_fn_captures_tensor(self):
         backend = EmbeddingBackend.__new__(EmbeddingBackend)

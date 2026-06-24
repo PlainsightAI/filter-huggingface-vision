@@ -33,9 +33,17 @@ dependencies = [
   "pillow",
   "huggingface-hub",
   "python-dotenv",
+  "fsspec>=2023.1.0",
 ]
 
 [project.optional-dependencies]
+# gs:// exemplar banks. fsspec stays core (imported unconditionally and handles
+# local/file://); gcsfs is the Google Storage driver, only needed for gs:// URIs.
+# The Docker image installs this extra so the in-pod / docker-compose path keeps
+# working out of the box.
+gcs = [
+  "gcsfs>=2023.1.0",
+]
 dev = [
   "build==1.4.0",
   "setuptools==80.10.1",
