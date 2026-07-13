@@ -726,7 +726,7 @@ requires-dist = [
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2023.1.0" },
     { name = "huggingface-hub", specifier = ">=0.23" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==7.0.0" },
-    { name = "openfilter", extras = ["all"], specifier = ">=1.1.2" },
+    { name = "openfilter", extras = ["all"], specifier = ">=1.1.2,<2.0.0" },
     { name = "pillow" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.0.0" },

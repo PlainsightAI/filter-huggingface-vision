@@ -83,6 +83,7 @@ Huggingface Vision filter release notes
 - Extended the same error-handling wrapper to `GroundingDinoBackend` and `OwlVitBackend` so every `from_pretrained` call in this filter produces the same actionable errors.
 - Pinned `huggingface-hub>=0.23` and switched the exception import to `huggingface_hub.utils` (stable across the whole supported range).
 - Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util); declared `pythonpath = ["tests"]` in `pyproject.toml` so the bare import is documented rather than implicit.
+- Cap openfilter dependency at `<2.0.0` to prevent an unreviewed 2.x major from being pulled in.
 
 ## v0.4.5 - 2026-04-23
 
