@@ -307,7 +307,7 @@ class TestImageClassificationBackendLoadErrors(unittest.TestCase):
     def test_hf_hub_http_error_includes_repr(self):
         from huggingface_hub.utils import HfHubHTTPError
 
-        exc = make_hf_error(HfHubHTTPError, "503 Service Unavailable")
+        exc = make_hf_error(HfHubHTTPError, "503 Service Unavailable", status_code=503)
         with patch("transformers.AutoImageProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
@@ -364,18 +364,18 @@ class TestImageClassificationBackendLoadErrors(unittest.TestCase):
         self.assertIn("image classification", msg)
         self.assertIn("unrecognized architecture", msg)
 
-    # --- Fallback branch ---
+    # --- Infra errors propagate unchanged (Fix #6 invariant) ---
 
-    def test_unexpected_exception_includes_repr(self):
+    def test_infra_error_propagates_unchanged(self):
+        # OSError (and other infra failures) are not model-compatibility problems:
+        # they must surface as their true type, never be relabeled as RuntimeError.
         with patch(
             "transformers.AutoImageProcessor.from_pretrained",
             side_effect=OSError("disk full"),
         ):
-            with self.assertRaises(RuntimeError) as ctx:
+            with self.assertRaises(OSError) as ctx:
                 self._load_backend()
-        msg = str(ctx.exception)
-        self.assertIn("Unexpected", msg)
-        self.assertIn("disk full", msg)
+        self.assertIn("disk full", str(ctx.exception))
 
     # --- Chained cause is preserved ---
 

@@ -131,10 +131,21 @@ class GroundingDinoBackend(VisionBackend):
         model_id = get_config_value(config, "model_id")
         revision = (get_config_value(config, "revision") or "").strip() or "main"
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        with hf_load_error_handler(model_id, revision, "open-vocabulary detection (grounding-dino)"):
+        with hf_load_error_handler(
+            model_id,
+            revision,
+            "open-vocabulary detection (grounding-dino)",
+            "AutoProcessor",
+        ):
             self._processor = AutoProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
+        with hf_load_error_handler(
+            model_id,
+            revision,
+            "open-vocabulary detection (grounding-dino)",
+            "AutoModelForZeroShotObjectDetection",
+        ):
             self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )

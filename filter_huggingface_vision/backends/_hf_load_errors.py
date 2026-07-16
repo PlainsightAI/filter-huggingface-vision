@@ -24,16 +24,24 @@ _MISSING_DEP_HINTS = {
 
 
 @contextmanager
-def hf_load_error_handler(model_id: str, revision: str, task: str):
-    """Wraps AutoImageProcessor + AutoModelFor*.from_pretrained calls with
-    targeted, actionable error messages.
+def hf_load_error_handler(model_id: str, revision: str, task: str, component: str):
+    """Wraps a single ``from_pretrained`` call with targeted, actionable error
+    messages.
+
+    ``component`` is the Auto class being loaded (e.g. ``AutoImageProcessor`` or
+    ``AutoModelForObjectDetection``); wrap each ``from_pretrained`` call in its
+    own context so the raised message names the failing component. Only value/
+    config errors (``ValueError``, ``TypeError``, ``KeyError``) and known Hub
+    errors are relabeled; genuine infrastructure errors (``OSError``,
+    ``MemoryError``, ``ConnectionError``, and any other type) propagate
+    unchanged, so callers and upstream retry logic still see their true type.
 
     Catch order matters:
     - GatedRepoError before RepositoryNotFoundError (it is a subclass).
     - RepositoryNotFoundError and RevisionNotFoundError before HfHubHTTPError
       (both are subclasses).
     - (LocalEntryNotFoundError, EntryNotFoundError) before HfHubHTTPError
-      and before the `except ValueError` fallback: on huggingface-hub 0.23
+      and before the `except (ValueError, TypeError, KeyError)` branch: on huggingface-hub 0.23
       (our declared floor, with the `requests` backbone) both ARE subclasses
       of HfHubHTTPError, and LocalEntryNotFoundError is additionally a
       subclass of ValueError, so any reorder would silently reroute them to
@@ -91,12 +99,9 @@ def hf_load_error_handler(model_id: str, revision: str, task: str):
         raise RuntimeError(
             f"Could not download '{model_id}@{revision}' from HuggingFace Hub: {repr(e)}"
         ) from e
-    except ValueError as e:
+    except (ValueError, TypeError, KeyError) as e:
         raise RuntimeError(
-            f"Model '{model_id}@{revision}' could not be loaded for {task}. "
+            f"Model {model_id} (revision={revision}) is not compatible with "
+            f"{component} for {task}. Use a model supported by the Transformers API. "
             f"Detail: {repr(e)}"
-        ) from e
-    except Exception as e:
-        raise RuntimeError(
-            f"Unexpected failure loading '{model_id}@{revision}' for {task}: {repr(e)}"
         ) from e

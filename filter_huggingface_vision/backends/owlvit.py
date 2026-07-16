@@ -73,10 +73,18 @@ class OwlVitBackend(VisionBackend):
         revision = (get_config_value(config, "revision") or "").strip() or "main"
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
         torch_dtype = torch.float16 if self._device.type == "cuda" else torch.float32
-        with hf_load_error_handler(model_id, revision, "zero-shot detection (owl-vit)"):
+        with hf_load_error_handler(
+            model_id, revision, "zero-shot detection (owl-vit)", "AutoProcessor"
+        ):
             self._processor = AutoProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
+        with hf_load_error_handler(
+            model_id,
+            revision,
+            "zero-shot detection (owl-vit)",
+            "AutoModelForZeroShotObjectDetection",
+        ):
             self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False, torch_dtype=torch_dtype
             )

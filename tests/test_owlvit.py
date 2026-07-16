@@ -105,7 +105,7 @@ class TestOwlVitBackendLoadErrors(unittest.TestCase):
         from huggingface_hub.utils import RepositoryNotFoundError
 
         exc = make_hf_error(RepositoryNotFoundError, "org/model")
-        with patch("transformers.OwlViTProcessor.from_pretrained", side_effect=exc):
+        with patch("transformers.AutoProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
         msg = str(ctx.exception)
@@ -117,14 +117,14 @@ class TestOwlVitBackendLoadErrors(unittest.TestCase):
         from huggingface_hub.utils import RevisionNotFoundError
 
         exc = make_hf_error(RevisionNotFoundError, "abc123")
-        with patch("transformers.OwlViTProcessor.from_pretrained", side_effect=exc):
+        with patch("transformers.AutoProcessor.from_pretrained", side_effect=exc):
             with self.assertRaises(RuntimeError) as ctx:
                 self._load_backend()
         self.assertIn("abc123", str(ctx.exception))
 
     def test_value_error_is_wrapped(self):
         with patch(
-            "transformers.OwlViTProcessor.from_pretrained",
+            "transformers.AutoProcessor.from_pretrained",
             side_effect=ValueError("bad config"),
         ):
             with self.assertRaises(RuntimeError) as ctx:

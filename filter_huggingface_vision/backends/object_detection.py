@@ -80,10 +80,15 @@ class ObjectDetectionBackend(VisionBackend):
         if not revision:
             raise ValueError("revision is required and must be non-empty.")
         # Never allow trust_remote_code at load time (security); filter normalize_config rejects it, backend enforces it if used directly.
-        with hf_load_error_handler(model_id, revision, "object detection"):
+        with hf_load_error_handler(
+            model_id, revision, "object detection", "AutoImageProcessor"
+        ):
             self._processor = AutoImageProcessor.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
+        with hf_load_error_handler(
+            model_id, revision, "object detection", "AutoModelForObjectDetection"
+        ):
             self._model = AutoModelForObjectDetection.from_pretrained(
                 model_id, revision=revision, trust_remote_code=False
             )
