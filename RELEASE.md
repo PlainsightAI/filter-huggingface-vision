@@ -85,13 +85,6 @@ Huggingface Vision filter release notes
 - Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util); declared `pythonpath = ["tests"]` in `pyproject.toml` so the bare import is documented rather than implicit.
 - Cap openfilter dependency at `<2.0.0` to prevent an unreviewed 2.x major from being pulled in.
 
-## v0.4.5 - 2026-04-23
-
-### Changed
-- Bump openfilter SDK, align CI workflow with shared release gate (source-paths)
-- Fix release workflow secret names: `PYPI_API_TOKEN` → `PLAINSIGHT_PYPI_TOKEN`, `DOCKERHUB_TOKEN` → `DOCKERHUB_ACCESS_TOKEN` (org-level secret names). Without this the PyPI / Docker Hub tokens resolved to empty and no package has been published since the migration.
-- Bump openfilter dependency to `>=0.1.30`.
-
 ## v0.4.4 - 2026-04-20
 
 ### Changed
