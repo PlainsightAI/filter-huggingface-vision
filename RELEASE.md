@@ -85,6 +85,7 @@ Huggingface Vision filter release notes
 - Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util); declared `pythonpath = ["tests"]` in `pyproject.toml` so the bare import is documented rather than implicit.
 - Cap openfilter dependency at `<2.0.0` to prevent an unreviewed 2.x major from being pulled in.
 - Bump the openfilter dependency to 1.2.0
+- Bump the openfilter dependency to 1.2.1
 
 ## v0.4.4 - 2026-04-20
 
