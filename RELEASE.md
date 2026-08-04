@@ -10,7 +10,7 @@ Huggingface Vision filter release notes
 - Update `openfilter[all]` to `>=1.2.1,<2.0.0` (the `<2.0.0` cap prevents an unreviewed 2.x major from being pulled in).
 - Grant `id-token: write` in `create-release.yaml` so the shared reusable release workflow can produce a keyless (cosign) SBOM attestation.
 - Pin the Docker base image to `python:3.13.14-slim` (both build stages) for reproducible builds.
-- Point the docker-compose utility images at `openfilter-video-in:1.2.1` and `openfilter-webvis:1.2.1`.
+- Point the docker-compose utility images at `openfilter-video-in:1.2.1` and `openfilter-webvis:1.2.1`, and pin the filter's own compose image to the release version (`openfilter-huggingface-vision:0.4.11`).
 - Update dev-tooling floors and switch dev pins to ranges (`setuptools>=83.0.0`, `wheel>=0.46.2`, `pytest>=9.0.3`, `pytest-cov>=6.0.0`).
 - Split the generic "not compatible" catch-all in both `ObjectDetectionBackend.load()` and `ImageClassificationBackend.load()` into targeted exception branches for `ImportError` (timm missing), `GatedRepoError`, `RepositoryNotFoundError`, `RevisionNotFoundError`, `HfHubHTTPError`, `ValueError`, and a generic fallback — every message now includes `repr(e)` and preserves the original traceback via `raise ... from e`.
 - Extracted the shared exception handling into `filter_huggingface_vision/backends/_hf_load_errors.py` as a `hf_load_error_handler` context manager so future `huggingface_hub` error types only need to be added in one place.
