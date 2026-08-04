@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM python:3.13-slim AS builder
+FROM python:3.13.14-slim AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -68,7 +68,7 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
       python -c "import torch; assert torch.version.cuda is not None, 'CUDA torch not installed'"; \
     fi
 
-FROM python:3.13-slim
+FROM python:3.13.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

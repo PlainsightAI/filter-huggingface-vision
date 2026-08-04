@@ -2,6 +2,23 @@
 Huggingface Vision filter release notes
 
 
+## [Unreleased]
+
+## v0.4.11 - 2026-08-04
+
+### Changed
+- Update `openfilter[all]` to `>=1.2.1,<2.0.0` (the `<2.0.0` cap prevents an unreviewed 2.x major from being pulled in).
+- Grant `id-token: write` in `create-release.yaml` so the shared reusable release workflow can produce a keyless (cosign) SBOM attestation.
+- Pin the Docker base image to `python:3.13.14-slim` (both build stages) for reproducible builds.
+- Point the docker-compose utility images at `openfilter-video-in:1.2.1` and `openfilter-webvis:1.2.1`.
+- Update dev-tooling floors and switch dev pins to ranges (`setuptools>=83.0.0`, `wheel>=0.46.2`, `pytest>=9.0.3`, `pytest-cov>=6.0.0`).
+- Split the generic "not compatible" catch-all in both `ObjectDetectionBackend.load()` and `ImageClassificationBackend.load()` into targeted exception branches for `ImportError` (timm missing), `GatedRepoError`, `RepositoryNotFoundError`, `RevisionNotFoundError`, `HfHubHTTPError`, `ValueError`, and a generic fallback — every message now includes `repr(e)` and preserves the original traceback via `raise ... from e`.
+- Extracted the shared exception handling into `filter_huggingface_vision/backends/_hf_load_errors.py` as a `hf_load_error_handler` context manager so future `huggingface_hub` error types only need to be added in one place.
+- Added `LocalEntryNotFoundError` / `EntryNotFoundError` coverage (offline or shared-cache race), 401-aware branch on `HfHubHTTPError` (with `HF_TOKEN` hint), and an allowlist of missing-dep hints (`timm`, `sentencepiece`, `detectron2`, `torchvision`).
+- Extended the same error-handling wrapper to `GroundingDinoBackend` and `OwlVitBackend` so every `from_pretrained` call in this filter produces the same actionable errors.
+- Pinned `huggingface-hub>=0.23` and switched the exception import to `huggingface_hub.utils` (stable across the whole supported range).
+- Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util); declared `pythonpath = ["tests"]` in `pyproject.toml` so the bare import is documented rather than implicit.
+
 ## v0.4.10 - 2026-06-23
 
 ### Added
@@ -65,27 +82,8 @@ Huggingface Vision filter release notes
 ## v0.4.5 - 2026-04-23
 
 ### Changed
-- Bump openfilter SDK, align CI workflow with shared release gate (source-paths)
-
+- Update the openfilter dependency to `>=0.1.30`, and align the CI workflow with the shared release gate (source-paths).
 - Fix release workflow secret names: `PYPI_API_TOKEN` → `PLAINSIGHT_PYPI_TOKEN`, `DOCKERHUB_TOKEN` → `DOCKERHUB_ACCESS_TOKEN` (org-level secret names). Without this the PyPI / Docker Hub tokens resolved to empty and no package has been published since the migration.
-- Bump openfilter dependency to `>=0.1.30`.
-
-## [Unreleased]
-
-### Changed
-
-- Bump openfilter to 1.1.0
-- Bump openfilter to 1.1.1
-- Bump openfilter to 1.1.2
-- Split the generic "not compatible" catch-all in both `ObjectDetectionBackend.load()` and `ImageClassificationBackend.load()` into targeted exception branches for `ImportError` (timm missing), `GatedRepoError`, `RepositoryNotFoundError`, `RevisionNotFoundError`, `HfHubHTTPError`, `ValueError`, and a generic fallback — every message now includes `repr(e)` and preserves the original traceback via `raise ... from e`.
-- Extracted the shared exception handling into `filter_huggingface_vision/backends/_hf_load_errors.py` as a `hf_load_error_handler` context manager so future `huggingface_hub` error types only need to be added in one place.
-- Added `LocalEntryNotFoundError` / `EntryNotFoundError` coverage (offline or shared-cache race), 401-aware branch on `HfHubHTTPError` (with `HF_TOKEN` hint), and an allowlist of missing-dep hints (`timm`, `sentencepiece`, `detectron2`, `torchvision`).
-- Extended the same error-handling wrapper to `GroundingDinoBackend` and `OwlVitBackend` so every `from_pretrained` call in this filter produces the same actionable errors.
-- Pinned `huggingface-hub>=0.23` and switched the exception import to `huggingface_hub.utils` (stable across the whole supported range).
-- Deduplicated the `make_hf_error` test helper into `tests/_hf_test_utils.py` (shared util); declared `pythonpath = ["tests"]` in `pyproject.toml` so the bare import is documented rather than implicit.
-- Cap openfilter dependency at `<2.0.0` to prevent an unreviewed 2.x major from being pulled in.
-- Bump the openfilter dependency to 1.2.0
-- Bump the openfilter dependency to 1.2.1
 
 ## v0.4.4 - 2026-04-20
 
@@ -99,7 +97,7 @@ Huggingface Vision filter release notes
 ### Changed
 - Replace inline create-release.yaml with shared workflow caller (~13 lines)
 - Switch to shared security-scan workflow
-- Bump openfilter to >=0.1.27
+- Update openfilter to >=0.1.27
 - Secret names updated to PYPI_API_TOKEN / DOCKERHUB_TOKEN
 
 

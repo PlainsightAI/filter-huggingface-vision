@@ -7,7 +7,7 @@
 
 services:
   video_in:
-    image: plainsightai/openfilter-video-in:0.1.27
+    image: plainsightai/openfilter-video-in:1.2.1
     env_file:
       - .env
     environment:
@@ -65,7 +65,7 @@ services:
       - filter-network
 
   webvis:
-    image: plainsightai/openfilter-webvis:0.1.27
+    image: plainsightai/openfilter-webvis:1.2.1
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-}
       FILTER_ID: webvis
