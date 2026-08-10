@@ -4,6 +4,10 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+### Changed
+
+- Bump the openfilter dependency to 1.2.2
+
 ## v0.4.11 - 2026-08-04
 
 ### Changed
