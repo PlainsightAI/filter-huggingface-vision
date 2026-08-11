@@ -1,12 +1,14 @@
 # Changelog
 Huggingface Vision filter release notes
 
-
 ## [Unreleased]
+
+## v0.4.12 - 2026-08-10
 
 ### Changed
 
-- Bump the openfilter dependency to 1.2.2
+- Build the image on `openfilter-base` (weekly apt-upgraded python-slim) instead of a stale `python:X.Y.Z-slim` pin, clearing the OS-package CVEs the pin carried.
+- Update the openfilter dependency to 1.2.2
 
 ## v0.4.11 - 2026-08-04
 
@@ -95,7 +97,6 @@ Huggingface Vision filter release notes
 - Remove redundant ci.yaml (shared workflow handles PR testing)
 - Add push + pull_request triggers to create-release.yaml
 
-
 ## v0.4.3 - 2026-04-20
 
 ### Changed
@@ -103,7 +104,6 @@ Huggingface Vision filter release notes
 - Switch to shared security-scan workflow
 - Update openfilter to >=0.1.27
 - Secret names updated to PYPI_API_TOKEN / DOCKERHUB_TOKEN
-
 
 ## v0.4.2 - 2026-04-10
 
