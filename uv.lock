@@ -760,18 +760,18 @@ requires-dist = [
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2023.1.0" },
     { name = "huggingface-hub", specifier = ">=0.23" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==7.0.0" },
-    { name = "openfilter", extras = ["all"], specifier = ">=1.2.1,<2.0.0" },
+    { name = "openfilter", extras = ["all"], specifier = ">=1.3.0,<2.0.0" },
     { name = "pillow" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "python-dotenv" },
     { name = "sentencepiece" },
-    { name = "setuptools", marker = "extra == 'dev'", specifier = "==83.0.0" },
+    { name = "setuptools", marker = "extra == 'dev'", specifier = ">=83.0.0" },
     { name = "timm" },
     { name = "torch", specifier = ">=2.9.1" },
     { name = "transformers", specifier = ">=4.40.0" },
     { name = "twine", marker = "extra == 'dev'", specifier = "==6.2.0" },
-    { name = "wheel", marker = "extra == 'dev'", specifier = "==0.46.2" },
+    { name = "wheel", marker = "extra == 'dev'", specifier = ">=0.46.2" },
 ]
 provides-extras = ["gcs", "dev"]
 
@@ -1887,7 +1887,7 @@ wheels = [
 
 [[package]]
 name = "openfilter"
-version = "1.2.1"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
@@ -1912,7 +1912,7 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/c7/81d9e4c27107609df39bd0a93d7a84ab30e6fdce7d8fbba77517910cb44e/openfilter-1.2.1-py3-none-any.whl", hash = "sha256:2fe428b19111922389778461474dcbffc09a184c8bfe06cc545dd909366f773a", size = 207557, upload-time = "2026-08-04T20:41:20.201Z" },
+    { url = "https://files.pythonhosted.org/packages/6d/32/0387ba180356b9a75d8cb63fbf2368ffbfb684c61fe743138dde917e4573/openfilter-1.3.0-py3-none-any.whl", hash = "sha256:3c37ee20b1798048220eb5d4a57d5776e107061ddc1ee8c5dc7c8304020bffe5", size = 213645, upload-time = "2026-08-17T21:21:58.807Z" },
 ]
 
 [package.optional-dependencies]
@@ -3019,15 +3019,15 @@ wheels = [
 
 [[package]]
 name = "starlette"
-version = "0.52.1"
+version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889ad680d79a40f339082c1978b5cfcf62c2d8d196873ac/starlette-0.52.1.tar.gz", hash = "sha256:834edd1b0a23167694292e94f597773bc3f89f362be6effee198165a35d62933", size = 2653702, upload-time = "2026-01-18T13:34:11.062Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/eb/e3/7c1dc7381d9f8ab7d854328ebfa884e62cb3f3d8549ddfd37c7814f42afa/starlette-1.3.1.tar.gz", hash = "sha256:05d0213193f2fbaae60e2ecb593b4add4262ad4e46536b54abe36f11a71724e0", size = 2703240, upload-time = "2026-06-12T09:23:11.602Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/bb/2799cc2ede3ed41131f8975621e7213dfc7ef4acbbaadfa440f32500c370/starlette-1.3.1-py3-none-any.whl", hash = "sha256:c7372aae11c3c3f26a42df7bd626cec2f47d03483d261d369516a615a53714c6", size = 73632, upload-time = "2026-06-12T09:23:10.017Z" },
 ]
 
 [[package]]
