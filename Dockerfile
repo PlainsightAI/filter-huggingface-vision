@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM python:3.13.14-slim AS builder
+FROM python:3.14-slim AS builder
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -68,10 +68,10 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
       python -c "import torch; assert torch.version.cuda is not None, 'CUDA torch not installed'"; \
     fi
 
-# openfilter-base = python:3.13-slim + all outstanding Debian security patches
+# openfilter-base = python:3.14-slim + all outstanding Debian security patches
 # (rebuilt weekly): provides the PYTHONDONTWRITEBYTECODE/PYTHONUNBUFFERED env, the
 # appuser account, and /app (WORKDIR) + /app/logs — so none of that is repeated here.
-FROM plainsightai/openfilter-base:py3.13
+FROM plainsightai/openfilter-base:py3.14
 
 USER appuser
 
