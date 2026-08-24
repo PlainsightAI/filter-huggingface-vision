@@ -99,6 +99,21 @@ def hf_load_error_handler(model_id: str, revision: str, task: str, component: st
         raise RuntimeError(
             f"Could not download '{model_id}@{revision}' from HuggingFace Hub: {repr(e)}"
         ) from e
+    except OSError as e:
+        # transformers raises OSError when `use_safetensors=True` and the repo
+        # publishes only pickle checkpoints. That is this filter refusing a
+        # format, not an infrastructure failure, and the operator can act on it,
+        # so it is relabeled. Every other OSError still propagates unchanged,
+        # per the policy in the docstring above.
+        if "safetensors" in str(e).lower():
+            raise RuntimeError(
+                f"'{model_id}@{revision}' publishes no safetensors weights, and this "
+                f"filter refuses pickle checkpoints (.bin/.pt): loading one unpickles "
+                f"it, which runs code from the file on the inference host. Use a "
+                f"revision that ships safetensors, or mirror the model as safetensors "
+                f"first. Detail: {repr(e)}"
+            ) from e
+        raise
     except (ValueError, TypeError, KeyError) as e:
         raise RuntimeError(
             f"Model {model_id} (revision={revision}) is not compatible with "

@@ -147,7 +147,7 @@ class GroundingDinoBackend(VisionBackend):
             "AutoModelForZeroShotObjectDetection",
         ):
             self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
-                model_id, revision=revision, trust_remote_code=False
+                model_id, revision=revision, trust_remote_code=False, use_safetensors=True
             )
         self._model = self._model.to(self._device)
         self._model.eval()

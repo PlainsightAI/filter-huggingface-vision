@@ -86,7 +86,11 @@ class OwlVitBackend(VisionBackend):
             "AutoModelForZeroShotObjectDetection",
         ):
             self._model = AutoModelForZeroShotObjectDetection.from_pretrained(
-                model_id, revision=revision, trust_remote_code=False, torch_dtype=torch_dtype
+                model_id,
+                revision=revision,
+                trust_remote_code=False,
+                torch_dtype=torch_dtype,
+                use_safetensors=True,
             )
         self._model = self._model.to(self._device)
         self._model.eval()
