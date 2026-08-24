@@ -90,7 +90,7 @@ class ObjectDetectionBackend(VisionBackend):
             model_id, revision, "object detection", "AutoModelForObjectDetection"
         ):
             self._model = AutoModelForObjectDetection.from_pretrained(
-                model_id, revision=revision, trust_remote_code=False
+                model_id, revision=revision, trust_remote_code=False, use_safetensors=True
             )
 
         self._model = self._model.to(self._device)

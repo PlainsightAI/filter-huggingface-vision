@@ -62,7 +62,7 @@ class ImageClassificationBackend(VisionBackend):
             "AutoModelForImageClassification",
         ):
             self._model = AutoModelForImageClassification.from_pretrained(
-                model_id, revision=revision, trust_remote_code=False
+                model_id, revision=revision, trust_remote_code=False, use_safetensors=True
             )
 
         self._model = self._model.to(self._device)

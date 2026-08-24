@@ -181,7 +181,7 @@ class EmbeddingBackend(VisionBackend):
                 continue
             try:
                 model = cls.from_pretrained(
-                    model_id, revision=revision, trust_remote_code=False
+                    model_id, revision=revision, trust_remote_code=False, use_safetensors=True
                 )
                 break
             except (ValueError, TypeError, KeyError):

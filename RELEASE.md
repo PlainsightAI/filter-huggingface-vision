@@ -3,12 +3,25 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+### Changed: model loads require the safetensors format
+
+- Every model load now passes `use_safetensors=True`. Loading a `.bin`/`.pt`
+  checkpoint unpickles it, which runs code from the file on the inference host —
+  the same class of risk this filter already refuses by rejecting
+  `trust_remote_code=true`, arrived at through the weight format instead.
+- **This can refuse a model that used to load.** A repository that publishes only
+  pickle checkpoints now fails at load, deliberately. The message names the model
+  and the refusal instead of leaving transformers' bare "does not appear to have
+  a file named model.safetensors": `_hf_load_errors` recognises that OSError and
+  relabels it, while every other OSError keeps propagating with its own type so
+  retry logic still sees infrastructure failures as such.
+- Processors are untouched: they carry no weights.
+
 ## v0.4.14 - 2026-08-19
 
 ### Changed
 
 - Build the filter image on `openfilter-base:py3.14` (was the prior interpreter). The published wheel supports Python 3.14, so the image now ships 3.14. Running on 3.10–3.13 is unaffected.
-
 
 ## v0.4.13 - 2026-08-18
 
