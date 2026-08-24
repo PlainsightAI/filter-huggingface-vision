@@ -3,6 +3,8 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.15 - 2026-08-24
+
 ### Changed: model loads require the safetensors format
 
 - Every model load now passes `use_safetensors=True`. Loading a `.bin`/`.pt`
