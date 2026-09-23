@@ -3,6 +3,10 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+### Changed
+
+- Bump the openfilter dependency to 1.4.0
+
 ## v0.4.15 - 2026-08-24
 
 ### Changed: model loads require the safetensors format
