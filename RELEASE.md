@@ -3,6 +3,10 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+### Changed
+
+- Bump the openfilter dependency to 1.5.0
+
 ### Fixed
 
 - **Publish the frame size the detections were measured against (`meta['width']` / `meta['height']`).**
