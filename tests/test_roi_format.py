@@ -3,9 +3,12 @@
 
 import unittest
 
+from types import SimpleNamespace
+
 from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
+    _apply_meta,
     _payload_to_meta_format,
 )
 
@@ -49,6 +52,54 @@ class TestPayloadToMetaFormatRoiFormat(unittest.TestCase):
         px = _payload_to_meta_format(_payload(), 400, 300, "pixel")[1]
         self.assertEqual(norm, px)
         self.assertAlmostEqual(px, 0.9)
+
+    def test_meta_reports_the_frame_the_rois_are_measured_against(self):
+        """Pixel rois are meaningless without the frame they were measured on.
+
+        A consumer cannot recover it downstream: VideoIn's `maxsize` preserves aspect
+        ratio, so the frame is neither the source video's resolution nor the configured
+        cap (a 2592x1520 source under a 1280x720 cap is emitted at 1227x720).
+        """
+        meta = {}
+        payload = {
+            "detection_type": "closed-vocabulary",
+            "task": "object-detection",
+            "model": {"id": "m", "revision": "main"},
+            "image": {"width": 1227, "height": 720},
+            **_payload(),
+        }
+        _apply_meta(meta, payload, SimpleNamespace(id="t", roi_format="pixel"))
+        self.assertEqual((meta["width"], meta["height"]), (1227, 720))
+        # the boxes it describes are in that same space
+        self.assertEqual(meta["detections"][0]["rois"], [[100, 51, 200, 150]])
+
+    def test_meta_reports_the_frame_for_normalized_rois_too(self):
+        # So a consumer wanting the frame size never has to branch on roi_format.
+        meta = {}
+        payload = {
+            "detection_type": "closed-vocabulary",
+            "task": "object-detection",
+            "model": {"id": "m", "revision": "main"},
+            "image": {"width": 1227, "height": 720},
+            **_payload(),
+        }
+        _apply_meta(meta, payload, SimpleNamespace(id="t", roi_format="normalized"))
+        self.assertEqual((meta["width"], meta["height"]), (1227, 720))
+
+    def test_meta_omits_frame_size_when_it_is_unknown(self):
+        # _image_from_frame reports 0x0 when it cannot read the image; publishing a
+        # zero would be worse than absent, since consumers divide by these.
+        meta = {}
+        payload = {
+            "detection_type": "closed-vocabulary",
+            "task": "object-detection",
+            "model": {"id": "m", "revision": "main"},
+            "image": {"width": 0, "height": 0},
+            **_payload(),
+        }
+        _apply_meta(meta, payload, SimpleNamespace(id="t", roi_format="pixel"))
+        self.assertNotIn("width", meta)
+        self.assertNotIn("height", meta)
 
     def test_pixel_clamps_to_frame_bounds(self):
         # Boxes that scale outside [0, w] / [0, h] must be clamped so downstream

@@ -214,9 +214,19 @@ def _apply_meta(meta_dict, payload, config):
     meta_dict["detection_type"] = _dt
     meta_dict["task"] = payload.get("task", "object-detection")
     meta_dict["model"] = payload.get("model", {"id": "", "revision": ""})
+    # The frame the rois below are measured against. It matters most under
+    # roi_format="pixel", where nothing else on the event says what pixel space the
+    # boxes live in and a consumer cannot infer it: VideoIn's `maxsize` resizes while
+    # preserving aspect ratio, so the frame is neither the source video's resolution
+    # nor the configured cap. Published for normalized rois too, so a consumer that
+    # wants the frame size does not have to branch on roi_format to find it.
+    if width:
+        meta_dict["width"] = width
+    if height:
+        meta_dict["height"] = height
     if _dt == "embedding":
         # Embedding payloads carry their data in frame.data directly, not in meta.
-        # Only detection_type, task, and model are set here.
+        # Beyond the frame size above, only detection_type, task and model are set here.
         pass
     elif classification_meta is not None:
         meta_dict["classification"] = {
