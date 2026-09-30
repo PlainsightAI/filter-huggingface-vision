@@ -3,6 +3,18 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+### Fixed
+
+- **Publish the frame size the detections were measured against (`meta['width']` / `meta['height']`).**
+  With `roi_format="pixel"` the emitted rois are absolute pixel coordinates, but nothing on the event
+  said which frame they were absolute to, and a consumer could not work it out: `VideoIn`'s `maxsize`
+  preserves aspect ratio, so the frame is neither the source video's resolution nor the configured cap
+  (a 2592x1520 source under a `1280x720` cap is emitted at 1227x720). Anything drawing those boxes back
+  over the video had to guess, and normalising by the video's own resolution put every box in the wrong
+  place. `_apply_meta` already had both values - it uses them to convert the boxes - and now publishes
+  them. Also set for `roi_format="normalized"`, so a consumer that wants the frame size never has to
+  branch on the format. Omitted, rather than published as `0`, when the frame size could not be read.
+
 ## v0.4.16 - 2026-09-23
 
 ### Changed
