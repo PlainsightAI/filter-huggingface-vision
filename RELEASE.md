@@ -3,13 +3,18 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+### Changed
+
+- Bump the openfilter dependency to 1.5.1
+
+## v0.4.18 - 2026-10-14
+
 ### Added
 
 - `embed_scope` (`frame`, `detections`, or `both`) publishes an L2-normalized embedding for the whole frame, for the classes listed in `embed_classes`, or for both in one pass. `embedding_model_id` is the crop model. `appearance_model_id`, when set, adds a second vector on that same crop. A detection that fails the score, area, border, or sharpness gate is left without a vector. With `embed_align_crops`, the crop is squared and the primary vector is the model forward output (the face-identity embedding). The appearance vector stays on the visual feature.
 
 ### Changed
 
-- Bump the openfilter dependency to 1.5.1
 - A whole-frame `embedding` is L2-normalized before it is published. Exemplar distance is still computed on the raw vector.
 
 ## v0.4.17 - 2026-10-01
