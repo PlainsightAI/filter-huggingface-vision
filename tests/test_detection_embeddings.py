@@ -4,11 +4,15 @@ import unittest
 
 from PIL import Image
 
-from filter_huggingface_vision.backends.embedding import _forward_embedding
+from filter_huggingface_vision.backends.embedding import _recognition_vector
 from filter_huggingface_vision.detection_embeddings import (
+    DEFAULT_EMBED_MIN_BBOX_AREA,
+    DEFAULT_EMBED_MIN_SHARPNESS,
     attach_crop_embeddings,
     l2_normalize,
+    resolve_embedder_revision,
     square_box,
+    square_crop,
 )
 from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
@@ -67,10 +71,35 @@ class TestIdentityForward(unittest.TestCase):
         class Output:
             embeddings = torch.tensor([[3.0, 4.0]])
             last_hidden_state = torch.tensor([[[1.0, 0.0]]])
+            pooler_output = torch.tensor([[9.0, 9.0]])
+            logits = torch.tensor([[0.1, 0.2, 0.3]])
 
-        raw = _forward_embedding(Output())
-        self.assertEqual(raw.shape, (1, 2))
+        raw = _recognition_vector(Output())
+        self.assertEqual(tuple(raw.shape), (1, 2))
         self.assertEqual(float(raw[0, 0]), 3.0)
+
+    def test_raw_vector_is_accepted(self):
+        import torch
+
+        raw = _recognition_vector(torch.tensor([3.0, 4.0]))
+        self.assertEqual(tuple(raw.shape), (1, 2))
+
+    def test_logits_and_feature_maps_are_refused(self):
+        import torch
+
+        class Logits:
+            logits = torch.tensor([[0.1, 0.2, 0.3]])
+
+        class Features:
+            last_hidden_state = torch.tensor([[[1.0, 0.0]]])
+            pooler_output = torch.tensor([[1.0, 0.0]])
+
+        with self.assertRaises(ValueError):
+            _recognition_vector(Logits())
+        with self.assertRaises(ValueError):
+            _recognition_vector(Features())
+        with self.assertRaises(ValueError):
+            _recognition_vector(torch.zeros(1, 4, 4))
 
 
 class TestL2(unittest.TestCase):
@@ -143,6 +172,57 @@ class TestAttach(unittest.TestCase):
         squared = square_box((10, 20, 30, 30), 100, 100)
         self.assertAlmostEqual(squared[2] - squared[0], squared[3] - squared[1])
 
+    def test_square_box_outside_the_frame_is_not_clamped_into_a_rectangle(self):
+        self.assertIsNone(square_box((2, 2, 30, 10), 80, 80))
+
+    def test_align_pads_to_a_square_at_the_edge(self):
+        seen = []
+
+        def primary(image):
+            seen.append(image.size)
+            return [1.0, 0.0]
+
+        image = _filled(80)
+        detection = _detection(box={"xmin": 2, "ymin": 2, "xmax": 30, "ymax": 10})
+        attach_crop_embeddings(
+            image,
+            [detection],
+            _config(embed_align_crops=True, embed_min_bbox_area=10, embed_min_sharpness=0),
+            primary,
+            None,
+        )
+        self.assertEqual(seen[0][0], seen[0][1])
+        cropped = square_crop(image, (2, 2, 30, 10))
+        self.assertEqual(cropped.size[0], cropped.size[1])
+
+    def test_passing_crops_share_one_forward_per_model(self):
+        class _Batch:
+            def __init__(self):
+                self.counts = []
+
+            def vectors(self, images):
+                self.counts.append(len(images))
+                return [[1.0, 0.0] for _ in images]
+
+        primary = _Batch()
+        appearance = _Batch()
+        image = _filled(80)
+        detections = [
+            _detection(box={"xmin": 10, "ymin": 10, "xmax": 40, "ymax": 40}),
+            _detection(box={"xmin": 42, "ymin": 12, "xmax": 70, "ymax": 40}),
+        ]
+        attach_crop_embeddings(
+            image,
+            detections,
+            _config(appearance_model_id="dino", embed_min_bbox_area=10),
+            primary,
+            appearance,
+        )
+        self.assertEqual(primary.counts, [2])
+        self.assertEqual(appearance.counts, [2])
+        self.assertIn("embeddings", detections[0])
+        self.assertIn("embeddings", detections[1])
+
 
 class TestMeta(unittest.TestCase):
     def test_embeddings_are_copied_onto_the_published_detection(self):
@@ -174,6 +254,44 @@ class TestConfig(unittest.TestCase):
                     embed_scope="detections",
                 )
             )
+
+    def test_quality_gates_default_on(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="detector",
+                revision="main",
+            )
+        )
+        self.assertEqual(config.embed_min_bbox_area, DEFAULT_EMBED_MIN_BBOX_AREA)
+        self.assertEqual(config.embed_min_sharpness, DEFAULT_EMBED_MIN_SHARPNESS)
+        self.assertGreater(config.embed_min_bbox_area, 0)
+        self.assertGreater(config.embed_min_sharpness, 0)
+
+    def test_other_models_do_not_inherit_the_detector_sha(self):
+        detector_sha = "a" * 40
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="detector",
+                revision=detector_sha,
+                embed_scope="both",
+                embedding_model_id="org/arcface",
+                embedding_revision="face-sha",
+                appearance_model_id="facebook/dinov2-small",
+                embed_classes=["face"],
+            )
+        )
+        self.assertEqual(config.embedding_revision, "face-sha")
+        self.assertEqual(config.appearance_revision, "main")
+        self.assertEqual(
+            resolve_embedder_revision("detector", None, "detector", detector_sha),
+            detector_sha,
+        )
 
     def test_embedding_type_rejects_detection_scope(self):
         with self.assertRaises(ValueError):

@@ -11,7 +11,9 @@ Huggingface Vision filter release notes
 
 ### Added
 
-- `embed_scope` (`frame`, `detections`, or `both`) publishes an L2-normalized embedding for the whole frame, for the classes listed in `embed_classes`, or for both in one pass. `embedding_model_id` is the crop model. `appearance_model_id`, when set, adds a second vector on that same crop. A detection that fails the score, area, border, or sharpness gate is left without a vector. With `embed_align_crops`, the crop is squared and the primary vector is the model forward output (the face-identity embedding). The appearance vector stays on the visual feature.
+- `embed_scope` (`frame`, `detections`, or `both`) publishes an L2-normalized embedding for the whole frame, for the classes listed in `embed_classes`, or for both in one pass. `embedding_model_id` is the crop model. `appearance_model_id`, when set, adds a second vector on that same crop. A detection that fails the score, area, border, or sharpness gate is left without a vector. Area and sharpness gates default on (`1024` px and Laplacian variance `20`); `0` turns either gate off. Crops that pass share one forward per model.
+- `embedding_revision` and `appearance_revision` pin those models. When unset, a model that is not the detector uses `main`, so a detector commit SHA is not sent to the other repos.
+- With `embed_align_crops`, the primary crop is padded to a square and the vector must be the model's `(batch, dim)` recognition embedding. `logits`, `pooler_output`, and `last_hidden_state` are refused. The appearance vector stays on the visual feature.
 
 ### Changed
 
