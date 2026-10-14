@@ -107,6 +107,33 @@ def _pool_embedding(tensor: torch.Tensor) -> torch.Tensor:
     return tensor[0].flatten()
 
 
+def _forward_embedding(outputs):
+    """Pick the recognition vector from a model forward.
+
+    Face-identity models publish this as ``embeddings`` or as a plain
+    ``(batch, dim)`` tensor. A generic vision model falls through to the
+    same hidden state the penultimate path already used.
+    """
+    if isinstance(outputs, torch.Tensor):
+        return outputs
+    for name in ("embeddings", "embedding"):
+        value = getattr(outputs, name, None)
+        if isinstance(value, torch.Tensor):
+            return value
+    if isinstance(outputs, (tuple, list)):
+        for value in outputs:
+            if isinstance(value, torch.Tensor):
+                return value
+    if hasattr(outputs, "pooler_output") and isinstance(outputs.pooler_output, torch.Tensor):
+        return outputs.pooler_output
+    if hasattr(outputs, "last_hidden_state"):
+        return outputs.last_hidden_state
+    raise ValueError(
+        "Could not extract embedding from model output. "
+        "The model may not be supported."
+    )
+
+
 class EmbeddingBackend(VisionBackend):
     """Backend that extracts penultimate-layer embeddings from any vision model.
 
@@ -123,6 +150,11 @@ class EmbeddingBackend(VisionBackend):
         self._model_loader = get_config_value(config, "model_loader", "transformers")
         self._hook_handle = None
         self._hooked_output = {}
+        # Set before the model load so a face-identity checkpoint skips the hook.
+        head = str(get_config_value(config, "embedding_head", "penultimate") or "penultimate")
+        if head not in ("penultimate", "output"):
+            raise ValueError("embedding_head must be 'penultimate' or 'output'.")
+        self._embedding_head = head
 
         if self._model_loader == "transformers":
             self._load_transformers(model_id, revision)
@@ -195,6 +227,16 @@ class EmbeddingBackend(VisionBackend):
         model = model.to(self._device)
         model.eval()
         self._model = model
+
+        # Identity checkpoints publish the recognition vector from forward.
+        # A penultimate hook would keep the map before that vector.
+        if getattr(self, "_embedding_head", "penultimate") == "output":
+            self._uses_hook = False
+            logger.info(
+                "Using model forward output as the embedding (loaded via %s)",
+                cls_name,
+            )
+            return
 
         # If we loaded a headed model (not plain AutoModel), install a hook
         # on the penultimate layer to capture features before the head.
@@ -288,11 +330,8 @@ class EmbeddingBackend(VisionBackend):
     # Inference
     # ------------------------------------------------------------------
 
-    def run(self, image_pil, width, height, config):
-        """Extract embedding from image.
-
-        Returns ``{"embeddings": {"embedding": [...], ...}}``.
-        """
+    def vector(self, image_pil) -> np.ndarray:
+        """Return the 1-D feature vector for one image, before L2 normalization."""
         self._hooked_output.clear()
 
         with torch.no_grad():
@@ -301,7 +340,9 @@ class EmbeddingBackend(VisionBackend):
                 inputs = {k: v.to(self._device) for k, v in inputs.items()}
                 outputs = self._model(**inputs)
 
-                if self._uses_hook and "features" in self._hooked_output:
+                if getattr(self, "_embedding_head", "penultimate") == "output":
+                    raw = _forward_embedding(outputs)
+                elif self._uses_hook and "features" in self._hooked_output:
                     raw = self._hooked_output["features"]
                 elif hasattr(outputs, "last_hidden_state"):
                     raw = outputs.last_hidden_state
@@ -319,8 +360,20 @@ class EmbeddingBackend(VisionBackend):
                 tensor = self._processor(image_pil).unsqueeze(0).to(self._device)
                 raw = self._model(tensor)
                 embedding = _pool_embedding(raw).cpu().numpy()
+            else:
+                raise ValueError(
+                    f"Invalid model_loader: {self._model_loader}. "
+                    "Must be 'transformers' or 'timm'."
+                )
 
-        embedding = embedding.squeeze()
+        return np.asarray(embedding, dtype=np.float32).reshape(-1)
+
+    def run(self, image_pil, width, height, config):
+        """Extract embedding from image.
+
+        Returns ``{"embeddings": {"embedding": [...], ...}}``.
+        """
+        embedding = self.vector(image_pil)
 
         result = {"embeddings": {}}
 
