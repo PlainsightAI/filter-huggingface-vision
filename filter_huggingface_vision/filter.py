@@ -6,7 +6,10 @@ from openfilter.filter_runtime.filter import FilterConfig, Filter, Frame
 
 from filter_huggingface_vision.arcface import ArcFaceEmbedder
 from filter_huggingface_vision.backends import get_backend
-from filter_huggingface_vision.face_align import FaceAligner
+from filter_huggingface_vision.face_align import (
+    DEFAULT_LANDMARK_REVISION,
+    FaceAligner,
+)
 from filter_huggingface_vision.backends.embedding import EmbeddingBackend
 from filter_huggingface_vision.detection_embeddings import (
     DEFAULT_EMBED_MIN_BBOX_AREA,
@@ -310,7 +313,26 @@ def _normalize_embed_config(config, detection_type: str) -> None:
     )
     setattr(config, "embed_classes", classes)
     setattr(config, "embed_reject_border", as_bool(getattr(config, "embed_reject_border", True), True))
-    setattr(config, "embed_align_crops", as_bool(getattr(config, "embed_align_crops", False), False))
+    align = as_bool(getattr(config, "embed_align_crops", False), False)
+    setattr(config, "embed_align_crops", align)
+    # Identity embedders (ArcFace) are for aligned face crops. A frame vector
+    # must use appearance_model_id; otherwise setup reloads the same repo through
+    # EmbeddingBackend (no preprocessor) and crashes, or publishes a meaningless
+    # whole-frame identity vector.
+    if align and uses_frame and not appearance_model_id:
+        raise ValueError(
+            "embed_align_crops with embed_scope that publishes a frame vector "
+            "('frame' or 'both') requires appearance_model_id. "
+            "The identity model is for aligned face crops, not a whole-frame embedding."
+        )
+    landmark_revision = getattr(config, "landmark_revision", None)
+    if isinstance(landmark_revision, str):
+        landmark_revision = landmark_revision.strip() or None
+    setattr(
+        config,
+        "landmark_revision",
+        landmark_revision or DEFAULT_LANDMARK_REVISION,
+    )
 
 
 def _apply_label_map(detections, label_map, collapse_labels_to):
@@ -487,6 +509,7 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     embed_min_sharpness: float = DEFAULT_EMBED_MIN_SHARPNESS  # 0 disables the blur gate
     embed_bbox_expansion: float = 0.0
     embed_align_crops: bool = False  # 5-point warp to the ArcFace 112 square
+    landmark_revision: str | None = None  # RetinaFace pin; defaults to DEFAULT_LANDMARK_REVISION
     embed_max_detections: int = 0  # highest-scoring crops per frame; 0 means no cap
     # Class-name remapping (PLAT-1104). Lets the user choose the final class name
     # shown in meta.detections[].class and the visualization overlay.
@@ -640,6 +663,9 @@ class FilterHuggingfaceVision(Filter):
             embed_align_crops=get_config_value(config, "embed_align_crops")
             if get_config_value(config, "embed_align_crops") is not None
             else get_config_value(base, "embed_align_crops", False),
+            landmark_revision=get_config_value(config, "landmark_revision")
+            if get_config_value(config, "landmark_revision") is not None
+            else get_config_value(base, "landmark_revision"),
             embed_max_detections=get_config_value(config, "embed_max_detections")
             if get_config_value(config, "embed_max_detections") is not None
             else get_config_value(base, "embed_max_detections", 0),
@@ -912,7 +938,10 @@ class FilterHuggingfaceVision(Filter):
         identity_head = "output" if align else "penultimate"
         if align and scope in ("detections", "both"):
             self._face_aligner = FaceAligner()
-            self._face_aligner.load(getattr(config, "device", "cpu"))
+            self._face_aligner.load(
+                getattr(config, "device", "cpu"),
+                getattr(config, "landmark_revision", None),
+            )
 
         def reuse(model_id: str, revision: str, embedding_head: str = "penultimate") -> EmbeddingBackend:
             key = (model_id, revision, embedding_head)
@@ -933,6 +962,8 @@ class FilterHuggingfaceVision(Filter):
                 config.appearance_revision,
             )
         if publishes_frame:
+            # With embed_align_crops, normalize_config requires appearance_model_id
+            # so this branch never reloads an identity repo through EmbeddingBackend.
             if appearance_model_id:
                 self._frame_embedder = self._appearance_embedder
             elif embedding_model_id:

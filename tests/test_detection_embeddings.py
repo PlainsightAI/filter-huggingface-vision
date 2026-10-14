@@ -12,6 +12,7 @@ from filter_huggingface_vision.detection_embeddings import (
     l2_normalize,
     resolve_embedder_revision,
 )
+from filter_huggingface_vision.face_align import DEFAULT_LANDMARK_REVISION
 from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
     FilterHuggingfaceVisionConfig,
@@ -437,3 +438,81 @@ class TestConfig(unittest.TestCase):
                     embed_classes=["face"],
                 )
             )
+
+    def test_both_with_align_requires_appearance_model(self):
+        """embed_scope=both + embed_align_crops without appearance_model_id.
+
+        That config would reload the ArcFace repo through EmbeddingBackend for
+        the frame vector and crash at setup (no preprocessor_config.json).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="detector",
+                    revision="main",
+                    embed_scope="both",
+                    embed_align_crops=True,
+                    embed_classes=["face"],
+                    embedding_model_id="minchul/cvlface_arcface_ir101_webface4m",
+                    embedding_revision="main",
+                )
+            )
+        self.assertIn("appearance_model_id", str(ctx.exception))
+
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="detector",
+                revision="main",
+                embed_scope="both",
+                embed_align_crops=True,
+                embed_classes=["face"],
+                embedding_model_id="minchul/cvlface_arcface_ir101_webface4m",
+                embedding_revision="main",
+                appearance_model_id="facebook/dinov2-small",
+                appearance_revision="main",
+            )
+        )
+        self.assertEqual(config.embed_scope, "both")
+        self.assertTrue(config.embed_align_crops)
+        self.assertEqual(config.appearance_model_id, "facebook/dinov2-small")
+
+    def test_landmark_revision_defaults_to_pin(self):
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="detector",
+                revision="main",
+                embed_scope="detections",
+                embed_align_crops=True,
+                embed_classes=["face"],
+                embedding_model_id="org/arcface",
+                embedding_revision="main",
+            )
+        )
+        self.assertEqual(config.landmark_revision, DEFAULT_LANDMARK_REVISION)
+
+        pinned = "b" * 40
+        config = FilterHuggingfaceVision.normalize_config(
+            FilterHuggingfaceVisionConfig(
+                id="test",
+                sources="",
+                outputs="",
+                model_id="detector",
+                revision="main",
+                embed_scope="detections",
+                embed_align_crops=True,
+                embed_classes=["face"],
+                embedding_model_id="org/arcface",
+                embedding_revision="main",
+                landmark_revision=pinned,
+            )
+        )
+        self.assertEqual(config.landmark_revision, pinned)

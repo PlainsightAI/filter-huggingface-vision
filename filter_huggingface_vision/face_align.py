@@ -36,6 +36,9 @@ ARCFACE_112 = np.array(
     dtype=np.float64,
 )
 _LANDMARK_REPO = "py-feat/retinaface_r34"
+# Pin every RetinaFace download. Upstream re-exports on `main` shift alignment
+# and every identity vector written after that point. Override via landmark_revision.
+DEFAULT_LANDMARK_REVISION = "15191e03665fbf49e7610a1aee8d643f8a9119ca"
 _RGB_MEAN = (123.0, 117.0, 104.0)
 _VARIANCE = (0.1, 0.2)
 _MIN_SIZES = ((16, 32), (64, 128), (256, 512))
@@ -164,6 +167,9 @@ class _SSH(nn.Module):
 
     def forward(self, x):
         conv3 = self.conv3X3(x)
+        # Deliberate: conv7X7_2 takes the same input as conv5X5_2 (conv5X5_1(x)),
+        # not conv5X5_2's output. Upstream quirk kept bit-identical to the trained
+        # weights; hoisting or chaining through conv5 would silently move landmarks.
         conv5 = self.conv5X5_2(self.conv5X5_1(x))
         conv7 = self.conv7x7_3(self.conv7X7_2(self.conv5X5_1(x)))
         return F.relu(torch.cat([conv3, conv5, conv7], dim=1), inplace=True)
@@ -280,19 +286,23 @@ def decode_landmarks(pre, priors):
 class FaceAligner:
     """One landmark forward per frame, then a 112 warp for each detection box."""
 
-    def load(self, device):
+    def load(self, device, revision: str | None = None):
         from huggingface_hub import hf_hub_download
         from safetensors.torch import load_file
 
+        pin = (revision or "").strip() or DEFAULT_LANDMARK_REVISION
         weights = hf_hub_download(
-            repo_id=_LANDMARK_REPO, filename="model.safetensors", revision="main"
+            repo_id=_LANDMARK_REPO, filename="model.safetensors", revision=pin
         )
         self._device = resolve_device(device)
         self._model = RetinaFace().to(self._device).eval()
         self._model.load_state_dict(load_file(weights), strict=True)
         self._mean = torch.tensor(_RGB_MEAN, device=self._device).view(1, 3, 1, 1)
         self._priors = {}
-        logger.info("Loaded local RetinaFace landmarks from %s", _LANDMARK_REPO)
+        self._revision = pin
+        logger.info(
+            "Loaded local RetinaFace landmarks from %s @ %s", _LANDMARK_REPO, pin
+        )
         return self
 
     def shutdown(self):

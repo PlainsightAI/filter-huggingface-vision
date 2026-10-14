@@ -127,7 +127,8 @@ PORT=8010
 | `embed_reject_border` | bool | true | No | Skip boxes within 1 px of the frame edge |
 | `embed_min_sharpness` | float | 20 | No | Minimum Laplacian variance. `0` disables the blur gate |
 | `embed_bbox_expansion` | float | 0 | No | Grow the appearance crop by this fraction of the box |
-| `embed_align_crops` | bool | false | No | Warp the identity crop to the ArcFace 112 square from five landmarks. A miss or a non-square result publishes no vectors |
+| `embed_align_crops` | bool | false | No | Warp the identity crop to the ArcFace 112 square from five landmarks. A miss or a non-square result publishes no vectors. With a frame embedding (`frame` or `both`), `appearance_model_id` is required |
+| `landmark_revision` | string | pinned RetinaFace SHA | No | Hub revision for the local RetinaFace landmark weights. Defaults to a commit SHA so alignment does not drift with `main` |
 | `embed_max_detections` | int | 0 | No | Highest-scoring crops embedded per frame. `0` means no cap. Passing crops still share one forward per model |
 | `input_topic` | string | "main" | No | Topic to read frame image from |
 | `output_topic` | string | "main" | No | Topic for processed frame |
