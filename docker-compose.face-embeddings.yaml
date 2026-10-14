@@ -1,0 +1,111 @@
+# Face embeddings for clips/fdc-eval-15min.mp4
+#
+# The clip is already on disk. VideoIn plays that file. The vision filter
+# detects faces and writes L2-normalized vectors on each face that passes
+# the quality gate. The recorder stores frame.data as JSONL, including
+# meta.src and meta.detections[].embeddings.
+#
+# Each face that passes the quality gate gets two L2-normalized vectors.
+# The identity vector is ArcFace on a face warped to the 112 template from
+# five RetinaFace landmarks. The appearance vector is DINOv2 on the
+# unaligned crop, for "looks similar" rather than "same person". Hub code
+# is not executed.
+#
+# GPU 0 only. First run builds the local v0.4.18 image (not on PyPI yet) and
+# downloads Grounding DINO, RetinaFace, ArcFace, and DINOv2 into the hf cache.
+#
+#   docker compose -f docker-compose.face-embeddings.yaml up --build
+#
+# Webvis: http://localhost:8016
+# JSONL:  ./output/fdc-eval-15min.jsonl
+
+name: face-embeddings
+
+services:
+  video_in:
+    image: plainsightai/openfilter-video-in:1.2.1
+    environment:
+      FILTER_ID: VideoIn
+      FILTER_SOURCES: file:///clips/fdc-eval-15min.mp4!sync!maxfps=${MAX_FPS:-1}!maxsize=${MAX_SIZE:-1280x720}
+      FILTER_OUTPUTS: tcp://*:5550
+    volumes:
+      - ./clips:/clips:ro
+    networks: [face-net]
+
+  filter_huggingface_vision:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: filter-huggingface-vision:face-embeddings
+    depends_on:
+      - video_in
+    environment:
+      FILTER_ID: filter_huggingface_vision
+      FILTER_SOURCES: tcp://video_in:5550
+      FILTER_OUTPUTS: tcp://*:5552
+      FILTER_DEVICE: cuda:0
+      NVIDIA_VISIBLE_DEVICES: "0"
+      FILTER_DETECTION_TYPE: open-vocabulary-grounding
+      FILTER_MODEL_ID: IDEA-Research/grounding-dino-tiny
+      FILTER_REVISION: main
+      FILTER_TEXT_LABELS: face|||a face
+      FILTER_COLLAPSE_LABELS_TO: face
+      FILTER_THRESHOLD: ${FACE_THRESHOLD:-0.30}
+      FILTER_TEXT_THRESHOLD: ${FACE_THRESHOLD:-0.30}
+      FILTER_MAX_DETECTIONS: "20"
+      FILTER_EMBED_SCOPE: detections
+      FILTER_EMBEDDING_MODEL_ID: minchul/cvlface_arcface_ir101_webface4m
+      FILTER_EMBEDDING_REVISION: main
+      FILTER_APPEARANCE_MODEL_ID: facebook/dinov2-small
+      FILTER_APPEARANCE_REVISION: main
+      FILTER_EMBED_CLASSES: face
+      FILTER_EMBED_ALIGN_CROPS: "true"
+      FILTER_EMBED_MIN_SCORE: ${EMBED_MIN_SCORE:-0.40}
+      FILTER_EMBED_MIN_BBOX_AREA: ${EMBED_MIN_BBOX_AREA:-1024}
+      FILTER_EMBED_MIN_SHARPNESS: ${EMBED_MIN_SHARPNESS:-20}
+      FILTER_EMBED_REJECT_BORDER: "true"
+      FILTER_DRAW_VISUALIZATION: "true"
+      FILTER_VISUALIZATION_TOPIC: viz
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    volumes:
+      - hf_cache:/app/models
+    networks: [face-net]
+
+  recorder:
+    image: containers.openfilter.io/plainsightai/openfilter-recorder:v0.1.10
+    platform: linux/amd64
+    depends_on:
+      - filter_huggingface_vision
+    environment:
+      FILTER_ID: recorder
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main
+      FILTER_OUTPUTS: file:///output/fdc-eval-15min.jsonl
+      FILTER_RULES: "+"
+      FILTER_FLUSH: "true"
+    volumes:
+      - ./output:/output
+    networks: [face-net]
+
+  webvis:
+    image: plainsightai/openfilter-webvis:1.2.1
+    depends_on:
+      - filter_huggingface_vision
+    environment:
+      FILTER_ID: webvis
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main,tcp://filter_huggingface_vision:5552;viz
+      FILTER_PORT: "8016"
+    ports:
+      - "8016:8016"
+    networks: [face-net]
+
+networks:
+  face-net:
+
+volumes:
+  hf_cache:

@@ -136,6 +136,9 @@ dmypy.json
 # Filter stuff
 cache/
 telemetry/
+clips/
+output/
+*.mov
 
 Dockerfile
 .github

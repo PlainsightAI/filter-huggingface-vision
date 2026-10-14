@@ -264,5 +264,5 @@ Embedding output is written to `frame.data` (not nested under `meta`):
 }
 ```
 
-- `embedding`: Feature vector from the penultimate layer. Dimensionality depends on the model (e.g. 384 for DINOv2-small, 768 for DINOv2-base/ViT-base).
-- `min_exemplar_distance`: Only present when `exemplar_embeddings_path` is set. L2 distance to the closest exemplar — lower values mean the frame is more similar to the reference set.
+- `embedding`: L2-normalized feature vector. Dimensionality depends on the model (e.g. 384 for DINOv2-small, 768 for DINOv2-base/ViT-base).
+- `min_exemplar_distance`: Only present when `exemplar_embeddings_path` is set. L2 distance from the raw model vector to the closest exemplar — lower values mean the frame is more similar to the reference set. The published `embedding` is L2-normalized after that distance is computed, so the two numbers do not live in the same space.

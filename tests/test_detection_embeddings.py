@@ -11,8 +11,6 @@ from filter_huggingface_vision.detection_embeddings import (
     attach_crop_embeddings,
     l2_normalize,
     resolve_embedder_revision,
-    square_box,
-    square_crop,
 )
 from filter_huggingface_vision.filter import (
     FilterHuggingfaceVision,
@@ -150,50 +148,106 @@ class TestAttach(unittest.TestCase):
         attach_crop_embeddings(_filled(64), [detection], _config(), lambda image: [1.0], None)
         self.assertNotIn("embeddings", detection)
 
-    def test_align_squares_the_primary_crop(self):
-        seen = []
+    def test_align_embeds_the_warped_face_and_keeps_the_appearance_crop(self):
+        seen_primary = []
+        seen_appearance = []
 
         def primary(image):
-            seen.append(image.size)
+            seen_primary.append(image.size)
             return [1.0, 0.0]
+
+        def appearance(image):
+            seen_appearance.append(image.size)
+            return [0.0, 1.0]
+
+        class _Aligner:
+            def align(self, image, boxes):
+                return [Image.new("RGB", (112, 112)) for _ in boxes]
 
         image = _filled(80)
         detection = _detection(box={"xmin": 20, "ymin": 30, "xmax": 50, "ymax": 40})
         attach_crop_embeddings(
             image,
             [detection],
-            _config(embed_align_crops=True, embed_min_bbox_area=10),
+            _config(embed_align_crops=True, embed_min_bbox_area=10, appearance_model_id="dino"),
             primary,
-            None,
+            appearance,
+            _Aligner(),
         )
-        self.assertEqual(seen[0][0], seen[0][1])
+        self.assertEqual(seen_primary, [(112, 112)])
+        self.assertEqual(seen_appearance, [(30, 10)])
+        self.assertEqual(len(detection["embeddings"]), 2)
 
-    def test_square_box_is_centered(self):
-        squared = square_box((10, 20, 30, 30), 100, 100)
-        self.assertAlmostEqual(squared[2] - squared[0], squared[3] - squared[1])
+    def test_align_without_landmarks_publishes_nothing(self):
+        called = []
 
-    def test_square_box_outside_the_frame_is_not_clamped_into_a_rectangle(self):
-        self.assertIsNone(square_box((2, 2, 30, 10), 80, 80))
+        class _Aligner:
+            def align(self, image, boxes):
+                return [None for _ in boxes]
 
-    def test_align_pads_to_a_square_at_the_edge(self):
+        detection = _detection(box={"xmin": 20, "ymin": 30, "xmax": 50, "ymax": 40})
+        attach_crop_embeddings(
+            _filled(80),
+            [detection],
+            _config(embed_align_crops=True, embed_min_bbox_area=10, embed_min_sharpness=0),
+            lambda image: called.append(image.size) or [1.0, 0.0],
+            None,
+            _Aligner(),
+        )
+        self.assertNotIn("embeddings", detection)
+        self.assertEqual(called, [])
+
+    def test_align_refuses_a_non_square_crop(self):
+        class _Aligner:
+            def align(self, image, boxes):
+                return [Image.new("RGB", (30, 10)) for _ in boxes]
+
+        detection = _detection(box={"xmin": 20, "ymin": 30, "xmax": 50, "ymax": 40})
+        attach_crop_embeddings(
+            _filled(80),
+            [detection],
+            _config(embed_align_crops=True, embed_min_bbox_area=10, embed_min_sharpness=0),
+            lambda image: [1.0, 0.0],
+            None,
+            _Aligner(),
+        )
+        self.assertNotIn("embeddings", detection)
+
+    def test_embed_max_detections_keeps_the_highest_scores(self):
         seen = []
 
         def primary(image):
             seen.append(image.size)
             return [1.0, 0.0]
 
-        image = _filled(80)
-        detection = _detection(box={"xmin": 2, "ymin": 2, "xmax": 30, "ymax": 10})
+        image = _filled(120)
+        detections = [
+            _detection(score=0.55, box={"xmin": 4, "ymin": 4, "xmax": 30, "ymax": 30}),
+            _detection(score=0.95, box={"xmin": 40, "ymin": 4, "xmax": 70, "ymax": 30}),
+            _detection(score=0.80, box={"xmin": 74, "ymin": 4, "xmax": 110, "ymax": 30}),
+        ]
         attach_crop_embeddings(
             image,
-            [detection],
-            _config(embed_align_crops=True, embed_min_bbox_area=10, embed_min_sharpness=0),
+            detections,
+            _config(embed_min_bbox_area=10, embed_min_sharpness=0, embed_max_detections=2),
             primary,
             None,
         )
-        self.assertEqual(seen[0][0], seen[0][1])
-        cropped = square_crop(image, (2, 2, 30, 10))
-        self.assertEqual(cropped.size[0], cropped.size[1])
+        self.assertEqual(len(seen), 2)
+        self.assertIn("embeddings", detections[1])
+        self.assertIn("embeddings", detections[2])
+        self.assertNotIn("embeddings", detections[0])
+
+    def test_align_requires_an_aligner(self):
+        detection = _detection(box={"xmin": 20, "ymin": 20, "xmax": 50, "ymax": 50})
+        with self.assertRaises(ValueError):
+            attach_crop_embeddings(
+                _filled(80),
+                [detection],
+                _config(embed_align_crops=True, embed_min_bbox_area=10),
+                lambda images: [[1.0, 0.0]],
+                None,
+            )
 
     def test_passing_crops_share_one_forward_per_model(self):
         class _Batch:
@@ -283,15 +337,90 @@ class TestConfig(unittest.TestCase):
                 embedding_model_id="org/arcface",
                 embedding_revision="face-sha",
                 appearance_model_id="facebook/dinov2-small",
+                appearance_revision="dino-sha",
                 embed_classes=["face"],
             )
         )
         self.assertEqual(config.embedding_revision, "face-sha")
-        self.assertEqual(config.appearance_revision, "main")
+        self.assertEqual(config.appearance_revision, "dino-sha")
         self.assertEqual(
             resolve_embedder_revision("detector", None, "detector", detector_sha),
             detector_sha,
         )
+
+    def test_a_different_embedder_must_name_its_own_revision(self):
+        detector_sha = "a" * 40
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="IDEA-Research/grounding-dino-base",
+                    revision=detector_sha,
+                    embed_scope="detections",
+                    embed_classes=["person"],
+                    embedding_model_id="facebook/dinov2-base",
+                )
+            )
+
+    def test_empty_embed_classes_are_rejected(self):
+        for classes in ("", []):
+            with self.assertRaises(ValueError):
+                FilterHuggingfaceVision.normalize_config(
+                    FilterHuggingfaceVisionConfig(
+                        id="test",
+                        sources="",
+                        outputs="",
+                        model_id="detector",
+                        revision="main",
+                        embed_scope="detections",
+                        embed_classes=classes,
+                        embedding_model_id="org/arcface",
+                        embedding_revision="main",
+                    )
+                )
+
+    def test_unused_appearance_model_is_rejected(self):
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="detector",
+                    revision="main",
+                    embed_scope="off",
+                    appearance_model_id="facebook/dinov2-small",
+                    appearance_revision="main",
+                )
+            )
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="facebook/dinov2-small",
+                    revision="main",
+                    detection_type="embedding",
+                    appearance_model_id="facebook/dinov2-base",
+                    appearance_revision="main",
+                )
+            )
+
+    def test_bbox_area_fraction_is_rejected(self):
+        with self.assertRaises(ValueError):
+            FilterHuggingfaceVision.normalize_config(
+                FilterHuggingfaceVisionConfig(
+                    id="test",
+                    sources="",
+                    outputs="",
+                    model_id="detector",
+                    revision="main",
+                    embed_min_bbox_area=0.5,
+                )
+            )
 
     def test_embedding_type_rejects_detection_scope(self):
         with self.assertRaises(ValueError):

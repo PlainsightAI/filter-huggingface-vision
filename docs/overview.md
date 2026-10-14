@@ -32,7 +32,7 @@ The **official Docker image** on `linux/amd64` ships PyTorch built for **CUDA 12
   - Extract penultimate-layer feature embeddings from any vision model via `detection_type="embedding"`.
   - Model-agnostic: uses PyTorch forward hooks to capture the last representation before the output head. Works with classification, detection, segmentation, and pure feature extractor models.
   - Supports HuggingFace Transformers and timm via the `model_loader` config option.
-  - Optional exemplar distance: provide a `.npz` file of reference embeddings to get `min_exemplar_distance` (L2) per frame for similarity-based anomaly detection.
+  - Optional exemplar distance: provide a `.npz` file of reference embeddings to get `min_exemplar_distance` (L2 of the raw vector) per frame. The published `embedding` is L2-normalized and cannot be used to recompute that distance.
   - Output in `frame.data["embedding"]` (feature vector) and optionally `frame.data["min_exemplar_distance"]`.
 
 - **Visualization**

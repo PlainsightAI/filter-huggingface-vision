@@ -116,6 +116,19 @@ PORT=8010
 | `threshold` | float | 0.3 | No | Detection confidence threshold [0, 1] (not used for image-classification) |
 | `device` | string | "cpu" | No | "cpu", "cuda" / cuda device index (e.g. "cuda:1"), or "auto" (CUDA when available, else CPU) |
 | `max_detections` | int | 100 | No | Maximum number of detections per frame (object detection only) |
+| `embed_scope` | string | off (frame for `embedding`) | No | `off`, `frame`, `detections`, or `both`. Crop vectors are written on `meta.detections[].embeddings` |
+| `embedding_model_id` | string | — | When scope includes detections | Crop model. With `embed_align_crops`, this is the identity model |
+| `embedding_revision` | string | detector revision only when it is the same model | Yes, unless this model is the detector | Pin for `embedding_model_id`. A detector SHA is not sent to another repo |
+| `appearance_model_id` | string | — | No | Second vector on the unaligned crop, or the frame vector when set. Rejected when this scope would not publish it |
+| `appearance_revision` | string | detector revision only when it is the same model | Yes, unless this model is the detector | Pin for `appearance_model_id` |
+| `embed_classes` | list | — | When scope includes detections | Final class names that receive a crop vector. `""` and `[]` are rejected |
+| `embed_min_score` | float | 0.5 | No | Minimum detection score in [0, 1] |
+| `embed_min_bbox_area` | float | 1024 | No | Minimum box area in pixels squared. `0` disables the gate. A value between 0 and 1 is rejected |
+| `embed_reject_border` | bool | true | No | Skip boxes within 1 px of the frame edge |
+| `embed_min_sharpness` | float | 20 | No | Minimum Laplacian variance. `0` disables the blur gate |
+| `embed_bbox_expansion` | float | 0 | No | Grow the appearance crop by this fraction of the box |
+| `embed_align_crops` | bool | false | No | Warp the identity crop to the ArcFace 112 square from five landmarks. A miss or a non-square result publishes no vectors |
+| `embed_max_detections` | int | 0 | No | Highest-scoring crops embedded per frame. `0` means no cap. Passing crops still share one forward per model |
 | `input_topic` | string | "main" | No | Topic to read frame image from |
 | `output_topic` | string | "main" | No | Topic for processed frame |
 | `draw_visualization` | bool | false | No | Publish a topic with boxes/labels drawn |
@@ -125,7 +138,7 @@ PORT=8010
 
 | `model_loader` | string | "transformers" | No | For `embedding` type: `"transformers"` or `"timm"` — how to load the model |
 | `exemplar_embeddings_path` | string | — | No | For `embedding` type: path to `.npz` file with reference embeddings. Accepts a local path or a `gs://bucket/bank.npz` URI (read via workload identity / ADC; `gs://` needs the `[gcs]` extra, bundled in the Docker image — see [docs/embedding-gcs.md](docs/embedding-gcs.md)) |
-| `output_embeddings` | bool | true | No | For `embedding` type: include raw embedding vector in frame data |
+| `output_embeddings` | bool | true | No | For `embedding` type: include the L2-normalized embedding vector in frame data |
 | `output_distances` | bool | true | No | For `embedding` type: include `min_exemplar_distance` (requires exemplars) |
 
 ## Usage
@@ -204,7 +217,7 @@ FilterHuggingfaceVisionConfig(
 )
 ```
 
-Output: `frame.data["embedding"]` (feature vector) and optionally `frame.data["min_exemplar_distance"]`. Metadata in `frame.data["meta"]` with `detection_type`, `task`, `model`.
+Output: `frame.data["embedding"]` (L2-normalized feature vector) and optionally `frame.data["min_exemplar_distance"]`. Metadata in `frame.data["meta"]` with `detection_type`, `task`, `model`. The distance is computed on the raw vector, before that normalization, so it cannot be recomputed from the published list.
 
 **Generating exemplar embeddings:**
 
@@ -248,7 +261,7 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `detections` | list | **Object detection only.** Each item: `{ "class": "<label>", "rois": [[xmin, ymin, xmax, ymax]] }` with coordinates normalized in [0, 1]. Not set for image-classification. |
+| `detections` | list | **Object detection only.** Each item: `{ "class": "<label>", "rois": [[xmin, ymin, xmax, ymax]] }` with coordinates normalized in [0, 1]. A crop embedding, when `embed_scope` includes detections, adds `embeddings`: a list of `{ "model", "vector" }` with L2-normalized vectors. Not set for image-classification. |
 | `detection_confidence` | float | **Object detection only.** Mean of detection scores. Not set for image-classification. |
 | `detection_type` | string | Method used: `closed-vocabulary`, `open-vocabulary`, `open-vocabulary-grounding`, or `image-classification`. |
 | `task` | string | `object-detection`, `zero-shot-object-detection`, or `image-classification`. |
@@ -259,8 +272,8 @@ All results are written to **`frame.data["meta"]`**. Upstream keys (`id`, `ts`, 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `embedding` | list[float] | Feature vector from the penultimate layer. Dimensionality depends on the model. |
-| `min_exemplar_distance` | float | **Only when exemplars are loaded.** L2 distance to the closest exemplar embedding. |
+| `embedding` | list[float] | L2-normalized feature vector. Dimensionality depends on the model. |
+| `min_exemplar_distance` | float | **Only when exemplars are loaded.** L2 distance from the raw vector to the closest exemplar. The published `embedding` is normalized afterwards, so this distance cannot be recomputed from it. |
 
 **Object detection** example (`frame.data["meta"]`):
 

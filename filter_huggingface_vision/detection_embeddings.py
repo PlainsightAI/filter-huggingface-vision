@@ -53,12 +53,13 @@ def parse_embed_classes(value):
     return names
 
 
-def resolve_embedder_revision(model_id, explicit, detector_id, detector_revision):
+def resolve_embedder_revision(model_id, explicit, detector_id, detector_revision, setting="revision"):
     """Revision for one extra embedder.
 
     An explicit revision wins. The detector pin is reused only when this
-    embedder is the detector itself. Any other model defaults to ``main``,
-    because a commit SHA from the detector repo does not exist on the others.
+    embedder is that same model. Any other model must set its own revision:
+    a detector commit SHA does not exist on the other repo, and defaulting
+    to ``main`` would silently unpin it.
     """
     if not model_id:
         return None
@@ -66,7 +67,10 @@ def resolve_embedder_revision(model_id, explicit, detector_id, detector_revision
         return explicit.strip()
     if model_id == detector_id and isinstance(detector_revision, str) and detector_revision.strip():
         return detector_revision.strip()
-    return "main"
+    raise ValueError(
+        f"{setting} is required for {model_id}. "
+        "The detector revision is only reused when the embedder is that same model."
+    )
 
 
 def pixel_box(detection: dict) -> tuple[float, float, float, float] | None:
@@ -105,50 +109,6 @@ def expand_box(box, width, height, expansion: float):
         y1 -= bh * expansion
         y2 += bh * expansion
     return _clamp_box(x1, y1, x2, y2, width, height)
-
-
-def square_box(box, width, height):
-    """Center a square on the box. Returns None when that square leaves the frame."""
-    x1, y1, x2, y2 = box
-    cx = (x1 + x2) / 2.0
-    cy = (y1 + y2) / 2.0
-    side = max(x2 - x1, y2 - y1)
-    left = cx - side / 2.0
-    top = cy - side / 2.0
-    right = left + side
-    bottom = top + side
-    if left < 0.0 or top < 0.0 or right > float(width) or bottom > float(height):
-        return None
-    return left, top, right, bottom
-
-
-def square_crop(image: Image.Image, box) -> Image.Image | None:
-    """Square crop centered on the box. Area outside the frame is black.
-
-    Clamping each edge would turn the square into a rectangle and stretch the
-    face when the identity model resizes it. Padding keeps the aspect ratio.
-    """
-    x1, y1, x2, y2 = box
-    side = max(x2 - x1, y2 - y1)
-    if side <= 1.0:
-        return None
-    cx = (x1 + x2) / 2.0
-    cy = (y1 + y2) / 2.0
-    side_px = max(1, int(round(side)))
-    left = int(np.floor(cx - side / 2.0))
-    top = int(np.floor(cy - side / 2.0))
-    canvas = Image.new("RGB", (side_px, side_px), (0, 0, 0))
-    vis_x1 = max(0, left)
-    vis_y1 = max(0, top)
-    vis_x2 = min(image.width, left + side_px)
-    vis_y2 = min(image.height, top + side_px)
-    if vis_x2 <= vis_x1 or vis_y2 <= vis_y1:
-        return None
-    patch = image.crop((vis_x1, vis_y1, vis_x2, vis_y2))
-    if patch.mode != "RGB":
-        patch = patch.convert("RGB")
-    canvas.paste(patch, (vis_x1 - left, vis_y1 - top))
-    return canvas
 
 
 def touches_border(box, width, height) -> bool:
@@ -223,14 +183,15 @@ def _embed_many(embedder, images):
     return [embedder(image) for image in images]
 
 
-def attach_crop_embeddings(image, detections, config, primary, appearance) -> None:
+def attach_crop_embeddings(image, detections, config, primary, appearance, aligner=None) -> None:
     """Write ``embeddings`` onto detections that pass the gate.
 
     ``primary`` and ``appearance`` are callables ``(PIL.Image) -> vector``, or
-    objects with ``vectors(images)``. ``appearance`` may be None. The primary
-    crop is padded to a square when ``embed_align_crops`` is set; the
-    appearance crop is only expanded. Forwards run after every crop for that
-    model is known, one batch per model.
+    objects with ``vectors(images)``. ``appearance`` may be None. With
+    ``embed_align_crops``, ``aligner.align(image, boxes)`` supplies the 112
+    identity crop and a miss drops both vectors. The appearance crop stays the
+    expanded detection box. Forwards run after every crop for that model is
+    known, one batch per model.
     """
     if not detections or primary is None:
         return
@@ -239,34 +200,51 @@ def attach_crop_embeddings(image, detections, config, primary, appearance) -> No
         return
     expansion = float(get_config_value(config, "embed_bbox_expansion", 0.0))
     align = as_bool(get_config_value(config, "embed_align_crops", False), False)
+    if align and aligner is None:
+        raise ValueError("embed_align_crops requires a 5-point face aligner.")
     primary_model = str(get_config_value(config, "embedding_model_id", ""))
     appearance_model = str(get_config_value(config, "appearance_model_id", "") or "")
     width, height = image.size
 
-    chosen = []
+    pending = []
     for detection in detections:
         if not isinstance(detection, dict) or not class_selected(detection, classes):
             continue
         box = pixel_box(detection)
         if box is None:
             continue
-        if align:
-            primary_crop = square_crop(image, box)
-        else:
-            primary_box = expand_box(box, width, height, expansion)
-            primary_crop = crop_image(image, primary_box) if primary_box is not None else None
-        if primary_crop is None or not crop_passes(
-            detection, box, primary_crop, image.size, config
-        ):
+        raw_box = expand_box(box, width, height, expansion)
+        raw_crop = crop_image(image, raw_box) if raw_box is not None else None
+        if raw_crop is None or not crop_passes(detection, box, raw_crop, image.size, config):
             continue
-        appearance_crop = None
-        if appearance is not None:
-            appearance_box = expand_box(box, width, height, expansion)
-            if appearance_box is None:
-                continue
-            appearance_crop = crop_image(image, appearance_box)
-            if appearance_crop is None:
-                continue
+        pending.append((detection, box, raw_crop))
+
+    if not pending:
+        return
+    limit = int(get_config_value(config, "embed_max_detections", 0) or 0)
+    if limit > 0 and len(pending) > limit:
+        pending = sorted(
+            pending,
+            key=lambda item: float(item[0].get("score") or 0.0),
+            reverse=True,
+        )[:limit]
+    if align:
+        warped = aligner.align(image, [item[1] for item in pending])
+        if len(warped) != len(pending):
+            raise RuntimeError(
+                f"face aligner returned {len(warped)} crops for {len(pending)} detections"
+            )
+    else:
+        warped = None
+
+    chosen = []
+    for index, (detection, _box, raw_crop) in enumerate(pending):
+        primary_crop = warped[index] if align else raw_crop
+        if primary_crop is None:
+            continue
+        if align and primary_crop.size[0] != primary_crop.size[1]:
+            continue
+        appearance_crop = raw_crop if appearance is not None else None
         chosen.append((detection, primary_crop, appearance_crop))
 
     if not chosen:

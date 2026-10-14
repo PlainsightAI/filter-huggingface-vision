@@ -4,7 +4,9 @@ import os
 import time
 from openfilter.filter_runtime.filter import FilterConfig, Filter, Frame
 
+from filter_huggingface_vision.arcface import ArcFaceEmbedder
 from filter_huggingface_vision.backends import get_backend
+from filter_huggingface_vision.face_align import FaceAligner
 from filter_huggingface_vision.backends.embedding import EmbeddingBackend
 from filter_huggingface_vision.detection_embeddings import (
     DEFAULT_EMBED_MIN_BBOX_AREA,
@@ -217,10 +219,12 @@ def _normalize_embed_config(config, detection_type: str) -> None:
         appearance_model_id = appearance_model_id.strip() or None
 
     classes = parse_embed_classes(getattr(config, "embed_classes", None))
-    if scope in ("detections", "both"):
-        if classes is None:
+    uses_crop = scope in ("detections", "both")
+    uses_frame = scope in ("frame", "both") and detection_type != "embedding"
+    if uses_crop:
+        if not classes:
             raise ValueError(
-                "embed_classes is required when embed_scope includes detections."
+                "embed_classes must list at least one class when embed_scope includes detections."
             )
         if not embedding_model_id:
             raise ValueError(
@@ -232,6 +236,18 @@ def _normalize_embed_config(config, detection_type: str) -> None:
                 "embed_scope='frame' on a detector requires embedding_model_id "
                 "or appearance_model_id."
             )
+    loads_embedding = bool(embedding_model_id) and (
+        uses_crop or (uses_frame and not appearance_model_id)
+    )
+    loads_appearance = bool(appearance_model_id) and (uses_crop or uses_frame)
+    if embedding_model_id and not loads_embedding:
+        raise ValueError(
+            "embedding_model_id is set, but this embed_scope does not publish a vector from it."
+        )
+    if appearance_model_id and not loads_appearance:
+        raise ValueError(
+            "appearance_model_id is set, but this embed_scope does not publish a crop or frame vector."
+        )
 
     for name, value, low, high in (
         ("embed_min_score", getattr(config, "embed_min_score", 0.5), 0.0, 1.0),
@@ -249,6 +265,21 @@ def _normalize_embed_config(config, detection_type: str) -> None:
         if value < low or (high is not None and value > high):
             raise ValueError(f"{name} is out of range.")
         setattr(config, name, value)
+    if 0.0 < float(config.embed_min_bbox_area) < 1.0:
+        raise ValueError(
+            "embed_min_bbox_area is in pixels squared. "
+            "A value between 0 and 1 looks like a fraction; use 0 to disable the gate."
+        )
+
+    raw_max = getattr(config, "embed_max_detections", 0)
+    if isinstance(raw_max, str):
+        try:
+            raw_max = float(raw_max)
+        except ValueError as exc:
+            raise ValueError("embed_max_detections must be a number.") from exc
+    if isinstance(raw_max, bool) or not isinstance(raw_max, (int, float)) or raw_max < 0:
+        raise ValueError("embed_max_detections must be a non-negative integer. 0 means no cap.")
+    setattr(config, "embed_max_detections", int(raw_max))
 
     detector_id = getattr(config, "model_id", None)
     detector_revision = getattr(config, "revision", None)
@@ -259,20 +290,22 @@ def _normalize_embed_config(config, detection_type: str) -> None:
         config,
         "embedding_revision",
         resolve_embedder_revision(
-            embedding_model_id,
+            embedding_model_id if loads_embedding else None,
             getattr(config, "embedding_revision", None),
             detector_id,
             detector_revision,
+            "embedding_revision",
         ),
     )
     setattr(
         config,
         "appearance_revision",
         resolve_embedder_revision(
-            appearance_model_id,
+            appearance_model_id if loads_appearance else None,
             getattr(config, "appearance_revision", None),
             detector_id,
             detector_revision,
+            "appearance_revision",
         ),
     )
     setattr(config, "embed_classes", classes)
@@ -438,22 +471,23 @@ class FilterHuggingfaceVisionConfig(FilterConfig):
     # Embedding extraction options (detection_type="embedding")
     model_loader: str = "transformers"  # "transformers" or "timm"
     exemplar_embeddings_path: str = ""  # path to .npz file with exemplar embeddings
-    output_embeddings: bool = True  # include raw embedding vector in frame data
+    output_embeddings: bool = True  # include the L2-normalized embedding vector in frame data
     output_distances: bool = True  # include L2 distances to exemplars
     # Crop embeddings. "off" on a detector leaves detections unchanged.
     # "frame" on detection_type=embedding is the existing whole-frame vector.
     embed_scope: str | None = None  # off | frame | detections | both
     embedding_model_id: str | None = None  # model for the crop vector
-    embedding_revision: str | None = None  # pin for embedding_model_id; else main
-    appearance_model_id: str | None = None  # optional second crop vector
-    appearance_revision: str | None = None  # pin for appearance_model_id; else main
-    embed_classes: list[str] | None = None  # classes that receive a crop vector
+    embedding_revision: str | None = None  # required pin unless this model is the detector
+    appearance_model_id: str | None = None  # optional second crop vector, or the frame vector
+    appearance_revision: str | None = None  # required pin unless this model is the detector
+    embed_classes: list[str] | None = None  # classes that receive a crop vector; empty is rejected
     embed_min_score: float = 0.5
-    embed_min_bbox_area: float = DEFAULT_EMBED_MIN_BBOX_AREA  # 0 disables
+    embed_min_bbox_area: float = DEFAULT_EMBED_MIN_BBOX_AREA  # pixels^2; 0 disables
     embed_reject_border: bool = True
     embed_min_sharpness: float = DEFAULT_EMBED_MIN_SHARPNESS  # 0 disables the blur gate
     embed_bbox_expansion: float = 0.0
-    embed_align_crops: bool = False  # square the crop for the primary embedder
+    embed_align_crops: bool = False  # 5-point warp to the ArcFace 112 square
+    embed_max_detections: int = 0  # highest-scoring crops per frame; 0 means no cap
     # Class-name remapping (PLAT-1104). Lets the user choose the final class name
     # shown in meta.detections[].class and the visualization overlay.
     #   - text_labels may be an inline-mapping string "gun|||a handgun###gun|||a shotgun"
@@ -606,6 +640,9 @@ class FilterHuggingfaceVision(Filter):
             embed_align_crops=get_config_value(config, "embed_align_crops")
             if get_config_value(config, "embed_align_crops") is not None
             else get_config_value(base, "embed_align_crops", False),
+            embed_max_detections=get_config_value(config, "embed_max_detections")
+            if get_config_value(config, "embed_max_detections") is not None
+            else get_config_value(base, "embed_max_detections", 0),
             class_delimiter=get_config_value(config, "class_delimiter", "|||")
             if get_config_value(config, "class_delimiter") is not None
             else get_config_value(base, "class_delimiter", "|||"),
@@ -798,6 +835,7 @@ class FilterHuggingfaceVision(Filter):
         self._crop_embedder = None
         self._appearance_embedder = None
         self._frame_embedder = None
+        self._face_aligner = None
         self._load_extra_embedders(config)
         # One-shot guard so the Grounding DINO label-mismatch hint logs at most once.
         self._grounding_label_mismatch_logged = False
@@ -826,6 +864,7 @@ class FilterHuggingfaceVision(Filter):
             getattr(self, "_crop_embedder", None),
             getattr(self, "_appearance_embedder", None),
             getattr(self, "_frame_embedder", None),
+            getattr(self, "_face_aligner", None),
         ):
             if backend is None or id(backend) in seen:
                 continue
@@ -835,6 +874,7 @@ class FilterHuggingfaceVision(Filter):
         self._crop_embedder = None
         self._appearance_embedder = None
         self._frame_embedder = None
+        self._face_aligner = None
         self._config = None
         self._revision = None
         logger.info("FilterHuggingfaceVision shutdown complete.")
@@ -851,8 +891,13 @@ class FilterHuggingfaceVision(Filter):
             "embedding_head": embedding_head,
         }
 
-    def _load_embedder(self, model_id: str, revision: str, embedding_head: str = "penultimate") -> EmbeddingBackend:
-        backend = EmbeddingBackend()
+    def _load_embedder(self, model_id: str, revision: str, embedding_head: str = "penultimate"):
+        # Identity crops use the local IResNet. Hub ArcFace repos ship custom
+        # code, and this filter refuses trust_remote_code.
+        if embedding_head == "output":
+            backend = ArcFaceEmbedder()
+        else:
+            backend = EmbeddingBackend()
         backend.load(self._embedder_config(model_id, revision, embedding_head))
         return backend
 
@@ -861,11 +906,13 @@ class FilterHuggingfaceVision(Filter):
         embedding_model_id = getattr(config, "embedding_model_id", None)
         appearance_model_id = getattr(config, "appearance_model_id", None)
         loaded: dict[tuple[str, str, str], EmbeddingBackend] = {}
-        # A squared crop is the face-identity case. That embedder must publish
+        # A 5-point warp is the face-identity case. That embedder must publish
         # its own forward vector. Appearance and scene stay on the visual hook.
-        identity_head = (
-            "output" if getattr(config, "embed_align_crops", False) else "penultimate"
-        )
+        align = as_bool(getattr(config, "embed_align_crops", False), False)
+        identity_head = "output" if align else "penultimate"
+        if align and scope in ("detections", "both"):
+            self._face_aligner = FaceAligner()
+            self._face_aligner.load(getattr(config, "device", "cpu"))
 
         def reuse(model_id: str, revision: str, embedding_head: str = "penultimate") -> EmbeddingBackend:
             key = (model_id, revision, embedding_head)
@@ -873,27 +920,25 @@ class FilterHuggingfaceVision(Filter):
                 loaded[key] = self._load_embedder(model_id, revision, embedding_head)
             return loaded[key]
 
+        publishes_frame = scope in ("frame", "both") and getattr(config, "detection_type", "") != "embedding"
         if scope in ("detections", "both") and embedding_model_id:
             self._crop_embedder = reuse(
                 embedding_model_id,
-                getattr(config, "embedding_revision", None) or "main",
+                config.embedding_revision,
                 identity_head,
             )
-        if appearance_model_id:
+        if appearance_model_id and (scope in ("detections", "both") or publishes_frame):
             self._appearance_embedder = reuse(
                 appearance_model_id,
-                getattr(config, "appearance_revision", None) or "main",
+                config.appearance_revision,
             )
-        if scope in ("frame", "both") and getattr(config, "detection_type", "") != "embedding":
+        if publishes_frame:
             if appearance_model_id:
-                self._frame_embedder = reuse(
-                    appearance_model_id,
-                    getattr(config, "appearance_revision", None) or "main",
-                )
+                self._frame_embedder = self._appearance_embedder
             elif embedding_model_id:
                 self._frame_embedder = reuse(
                     embedding_model_id,
-                    getattr(config, "embedding_revision", None) or "main",
+                    config.embedding_revision,
                 )
 
     def _attach_configured_embeddings(self, image, detections) -> None:
@@ -909,6 +954,7 @@ class FilterHuggingfaceVision(Filter):
             self._config,
             self._crop_embedder,
             appearance,
+            getattr(self, "_face_aligner", None),
         )
 
     def _write_frame_embedding(self, frame, image) -> None:
