@@ -1,41 +1,58 @@
-# Example face-embedding pipeline (detector + identity + appearance).
+# Face-embedding pipeline with frame dedup:
+#   VideoIn → FrameDedup → FilterHuggingfaceVision → Recorder / Webvis
 #
-# Defaults to the repo's filter_example_video.mp4 so a fresh checkout can run.
-# Override the clip with CLIP=/path/to/video.mp4.
+# FrameDedup always forwards every frame on `main`. Unique keyframes are
+# published on the `deduped` side channel. The vision filter remaps
+# `deduped>main` so Grounding DINO / ArcFace / DINOv2 run only on uniques.
 #
-# VideoIn samples at maxfps=1 (no sync — sync never skips frames). The vision
-# filter detects faces and writes L2-normalized vectors on each face that
-# passes the quality gate. The recorder stores frame.data as JSONL, including
-# meta.src and meta.detections[].embeddings.
+# Speed knobs aligned with internal-fdc batch pipelines:
+#   FILTER_MAXFPS_BY_INDEX  — subsample by frame index, not wall clock
+#   ZMQ_PUB_HWM             — high-water mark so pubs don't stall
+#   FILTER_SSIM_THRESHOLD   — aggressive near-duplicate drop (default 0.95)
 #
-# Each face that passes the quality gate gets two L2-normalized vectors.
-# The identity vector is ArcFace on a face warped to the 112 template from
-# five RetinaFace landmarks. The appearance vector is DINOv2 on the
-# unaligned crop, for "looks similar" rather than "same person". Hub code
-# is not executed.
-#
-# GPU 0 only. First run builds the local v0.4.18 image (not on PyPI yet) and
-# downloads Grounding DINO, RetinaFace, ArcFace, and DINOv2 into the hf cache.
-# The image creates /app/models as appuser so the hf_cache volume is writable.
+# Override the clip with VIDEO_PATH=/path/to/video.mp4.
 # Detector, identity, appearance, and landmark revisions default to commit SHAs.
 #
 #   docker compose -f docker-compose.face-embeddings.yaml up --build
 #
-# Webvis: http://localhost:8016
+# Webvis: http://localhost:8016          (vision main)
+#         http://localhost:8016/viz      (boxes)
 # JSONL:  ./output/face-embeddings.jsonl
 
 name: face-embeddings
 
+x-common-env: &common-env
+  DO_NOT_TRACK: ${DO_NOT_TRACK:-1}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  ZMQ_PUB_HWM: "${PUB_HWM:-2000}"
+
 services:
   video_in:
-    image: plainsightai/openfilter-video-in:1.2.1
+    image: containers.openfilter.io/plainsightai/openfilter-video-in:${VIDEO_IN_TAG:-1.4.0}
     environment:
+      <<: *common-env
       FILTER_ID: VideoIn
-      # maxfps=1 skips down to ~1 frame/sec. Do not combine with !sync.
-      FILTER_SOURCES: file:///video.mp4!maxfps=${MAX_FPS:-1}!maxsize=${MAX_SIZE:-1280x720}
-      FILTER_OUTPUTS: tcp://*:5550
+      # by index, not wall clock: the reader subsamples and reads flat out. With
+      # plain maxfps a 15 min clip takes 15 min whatever the GPU does.
+      FILTER_SOURCES: "file:///video.mp4!maxfps=${VIDEO_MAXFPS:-1}!maxsize=1280x720"
+      FILTER_MAXFPS_BY_INDEX: "true"
+      FILTER_OUTPUTS: "tcp://*:5550"
     volumes:
-      - ${CLIP:-./filter_example_video.mp4}:/video.mp4:ro
+      - ${VIDEO_PATH:-./filter_example_video.mp4}:/video.mp4:ro
+    networks: [face-net]
+
+  frame_dedup:
+    image: containers.openfilter.io/plainsightai/openfilter-frame-dedup:${DEDUP_TAG:-1.3.5}
+    depends_on:
+      - video_in
+    environment:
+      <<: *common-env
+      FILTER_ID: FrameDedup
+      FILTER_SOURCES: "tcp://video_in:5550"
+      FILTER_OUTPUTS: "tcp://*:5551"
+      FILTER_SSIM_THRESHOLD: "${DEDUP_SSIM_THRESHOLD:-0.95}"
+      FILTER_SAVE_IMAGES: "false"
+      FILTER_FORWARD_DEDUPED_FRAMES: "true"
     networks: [face-net]
 
   filter_huggingface_vision:
@@ -44,11 +61,13 @@ services:
       dockerfile: Dockerfile
     image: filter-huggingface-vision:face-embeddings
     depends_on:
-      - video_in
+      - frame_dedup
     environment:
+      <<: *common-env
       FILTER_ID: filter_huggingface_vision
-      FILTER_SOURCES: tcp://video_in:5550
-      FILTER_OUTPUTS: tcp://*:5552
+      # Remap deduped → main (same pattern as internal-fdc DEIMv2 worker).
+      FILTER_SOURCES: "tcp://frame_dedup:5551;deduped>main"
+      FILTER_OUTPUTS: "tcp://*:5552"
       FILTER_DEVICE: cuda:0
       NVIDIA_VISIBLE_DEVICES: "0"
       FILTER_DETECTION_TYPE: open-vocabulary-grounding
@@ -73,6 +92,8 @@ services:
       FILTER_EMBED_REJECT_BORDER: "true"
       FILTER_DRAW_VISUALIZATION: "true"
       FILTER_VISUALIZATION_TOPIC: viz
+      FILTER_LOCAL_SHUTDOWN_TIMEOUT_S: "${VISION_SHUTDOWN_TIMEOUT_S:-900}"
+      FILTER_SHUTDOWN_DRAIN_MAX: "${VISION_DRAIN_MAX:-100000}"
     deploy:
       resources:
         reservations:
@@ -90,6 +111,7 @@ services:
     depends_on:
       - filter_huggingface_vision
     environment:
+      <<: *common-env
       FILTER_ID: recorder
       FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main
       FILTER_OUTPUTS: file:///output/face-embeddings.jsonl
@@ -104,6 +126,7 @@ services:
     depends_on:
       - filter_huggingface_vision
     environment:
+      <<: *common-env
       FILTER_ID: webvis
       FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main,tcp://filter_huggingface_vision:5552;viz
       FILTER_PORT: "8016"
