@@ -328,6 +328,24 @@ class TestEmbeddingBackendDoesNotSwallowInfraErrors(unittest.TestCase):
             output_distances=True,
         )
 
+    def test_identity_repo_without_align_names_the_flag(self):
+        from filter_huggingface_vision.backends.embedding import EmbeddingBackend
+
+        backend = EmbeddingBackend()
+        missing = OSError(
+            "minchul/cvlface_arcface_ir101_webface4m does not appear to have a "
+            "file named preprocessor_config.json"
+        )
+        with mock.patch(
+            "transformers.AutoImageProcessor.from_pretrained",
+            side_effect=missing,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                backend.load(self._cfg())
+        message = str(ctx.exception)
+        self.assertIn("embed_align_crops", message)
+        self.assertIn("preprocessor_config.json", message)
+
     def test_propagates_oserror_from_first_auto_class(self):
         from filter_huggingface_vision.backends.embedding import EmbeddingBackend
 

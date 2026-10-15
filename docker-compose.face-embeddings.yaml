@@ -16,6 +16,8 @@
 #
 # GPU 0 only. First run builds the local v0.4.18 image (not on PyPI yet) and
 # downloads Grounding DINO, RetinaFace, ArcFace, and DINOv2 into the hf cache.
+# The image creates /app/models as appuser so the hf_cache volume is writable.
+# Detector, identity, appearance, and landmark revisions default to commit SHAs.
 #
 #   docker compose -f docker-compose.face-embeddings.yaml up --build
 #
@@ -51,7 +53,7 @@ services:
       NVIDIA_VISIBLE_DEVICES: "0"
       FILTER_DETECTION_TYPE: open-vocabulary-grounding
       FILTER_MODEL_ID: IDEA-Research/grounding-dino-tiny
-      FILTER_REVISION: main
+      FILTER_REVISION: ${DETECTOR_REVISION:-a2bb814dd30d776dcf7e30523b00659f4f141c71}
       FILTER_TEXT_LABELS: face|||a face
       FILTER_COLLAPSE_LABELS_TO: face
       FILTER_THRESHOLD: ${FACE_THRESHOLD:-0.30}
@@ -59,9 +61,9 @@ services:
       FILTER_MAX_DETECTIONS: "20"
       FILTER_EMBED_SCOPE: detections
       FILTER_EMBEDDING_MODEL_ID: minchul/cvlface_arcface_ir101_webface4m
-      FILTER_EMBEDDING_REVISION: main
+      FILTER_EMBEDDING_REVISION: ${EMBEDDING_REVISION:-5846a5e96fbe1094952a414c78ce5b057c92d013}
       FILTER_APPEARANCE_MODEL_ID: facebook/dinov2-small
-      FILTER_APPEARANCE_REVISION: main
+      FILTER_APPEARANCE_REVISION: ${APPEARANCE_REVISION:-ed25f3a31f01632728cabb09d1542f84ab7b0056}
       FILTER_EMBED_CLASSES: face
       FILTER_EMBED_ALIGN_CROPS: "true"
       FILTER_LANDMARK_REVISION: ${LANDMARK_REVISION:-15191e03665fbf49e7610a1aee8d643f8a9119ca}

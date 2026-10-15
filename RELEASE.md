@@ -16,6 +16,11 @@ Huggingface Vision filter release notes
 - A whole-frame `embedding` is L2-normalized before it is published. Exemplar distance is still computed on the raw vector, so it cannot be recomputed from the published list.
 - Depend on openfilter 1.5.1.
 
+### Fixed
+
+- The face-embedding image creates `/app/models` as `appuser`, so a fresh `hf_cache` volume mounted there is writable. A volume created before this fix stays root-owned and has to be recreated.
+- Loading an ArcFace identity repo through `EmbeddingBackend` (no `embed_align_crops`) raises an error that names the missing flag, instead of a bare missing-`preprocessor_config.json` `OSError`.
+
 ## v0.4.17 - 2026-10-01
 
 ### Changed

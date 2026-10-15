@@ -206,9 +206,22 @@ class EmbeddingBackend(VisionBackend):
         """Load a HuggingFace model, preferring headless, falling back to headed + hook."""
         from transformers import AutoImageProcessor
 
-        self._processor = AutoImageProcessor.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False
-        )
+        try:
+            self._processor = AutoImageProcessor.from_pretrained(
+                model_id, revision=revision, trust_remote_code=False
+            )
+        except OSError as exc:
+            # An ArcFace identity repo has weights and no image processor.
+            # Without this hint, setup dies on preprocessor_config.json and
+            # the missing embed_align_crops flag is not named.
+            if "preprocessor_config.json" in str(exc):
+                raise RuntimeError(
+                    f"'{model_id}@{revision}' has no preprocessor_config.json, so "
+                    "EmbeddingBackend cannot load it. An ArcFace identity checkpoint "
+                    "needs embed_align_crops=true, which loads those weights with the "
+                    f"local IResNet. Detail: {exc}"
+                ) from exc
+            raise
 
         import transformers
 

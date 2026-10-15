@@ -73,6 +73,12 @@ RUN --mount=type=bind,source=VERSION,target=/tmp/VERSION,ro \
 # appuser account, and /app (WORKDIR) + /app/logs — so none of that is repeated here.
 FROM plainsightai/openfilter-base:py3.14
 
+# HF_HOME is /app/models/hfcache. A named volume mounted at /app/models is
+# created by Docker as root when that path is missing, and the process runs
+# as appuser. Creating the mountpoint here makes a fresh volume inherit
+# appuser:appuser, so the first download can create hfcache.
+USER root
+RUN mkdir -p /app/models && chown appuser:appuser /app/models
 USER appuser
 
 COPY --from=builder /usr/local /usr/local

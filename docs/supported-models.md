@@ -17,6 +17,7 @@ The filter supports a fixed set of **Hugging Face APIs**. Each API is identified
 - **Object detection:** `detections`, `detection_confidence`, `detection_type`, `task`, `model`.
 - **Image classification:** no `detections` nor `detection_confidence`. Only `classification`: `{ "classes", "confidences", "architecture", "timestamp", "filter_id", "model_id", "revision", "top_k" }`, plus `detection_type`, `task`, `model`.
 - **Embedding:** `embedding` (feature vector) and optionally `min_exemplar_distance` written to `frame.data`. Metadata (`detection_type`, `task`, `model`) in `frame.data["meta"]`.
+- **Per-detection embeddings:** `meta.detections[].embeddings` when a detector sets `embed_scope` to `detections` or `both`. See [Per-detection embeddings](#per-detection-embeddings).
 
 ## Pipelines
 
@@ -190,6 +191,40 @@ VIDEO_PATH=./filter_example_video.mp4
 THRESHOLD=0.3
 PORT=8010
 ```
+
+---
+
+## Per-detection embeddings
+
+A detector (`closed-vocabulary`, `open-vocabulary`, or `open-vocabulary-grounding`) can publish an L2-normalized vector for selected boxes in the same pass as the detections. This is not `detection_type=embedding`. The whole-frame embedding path below is unchanged.
+
+Set `embed_scope` to `detections` (crops only), `frame` (one vector for the frame), or `both`. Crop vectors are written on `meta.detections[].embeddings` as `{"model": "<repo>", "vector": [...]}`. A detection that fails the gate stays in the list with no `embeddings` key.
+
+`embedding_model_id` is the crop model. `appearance_model_id`, when set, adds a second vector from the unaligned crop. Each model that is not the detector needs its own revision (`embedding_revision`, `appearance_revision`). The detector SHA is reused only when the embedder is that same repo.
+
+`embed_classes` names the labels that receive a vector. `""` and `[]` are rejected. Gates, all optional: `embed_min_score` (default 0.5), `embed_min_bbox_area` (pixels squared, default 1024; a fraction in (0, 1) is rejected; `0` disables), `embed_reject_border` (default true), `embed_min_sharpness` (Laplacian variance, default 20; `0` disables). `embed_max_detections` (`0` means no cap) keeps the highest-scoring crops. Passing crops share one forward per model.
+
+`embed_align_crops` warps each selected face onto the ArcFace 112 square from five RetinaFace landmarks and loads the identity weights with a local IResNet (`ir18` through `ir200`, including `minchul/cvlface_arcface_ir101_webface4m`). Hub code is not executed. A face with no matched landmarks, or a crop that is not square, is left without vectors. An identity repo has no `preprocessor_config.json`; pointing `embedding_model_id` at one without `embed_align_crops` fails at setup and names that flag. `landmark_revision` pins the RetinaFace weights and defaults to a commit SHA. `embed_scope` of `frame` or `both` together with `embed_align_crops` requires `appearance_model_id`, so the identity repo is not loaded again as a whole-frame embedder.
+
+### Example config (face identity + appearance)
+
+```python
+FilterHuggingfaceVisionConfig(
+    detection_type="open-vocabulary-grounding",
+    model_id="IDEA-Research/grounding-dino-tiny",
+    revision="a2bb814dd30d776dcf7e30523b00659f4f141c71",
+    text_labels=[["a face"]],
+    embed_scope="detections",
+    embed_classes=["face"],
+    embed_align_crops=True,
+    embedding_model_id="minchul/cvlface_arcface_ir101_webface4m",
+    embedding_revision="5846a5e96fbe1094952a414c78ce5b057c92d013",
+    appearance_model_id="facebook/dinov2-small",
+    appearance_revision="ed25f3a31f01632728cabb09d1542f84ab7b0056",
+)
+```
+
+The identity vector is 512-d. The appearance vector is the DINOv2 width (384 for `dinov2-small`). Both lists are L2-normalized. `docker-compose.face-embeddings.yaml` is the same pipeline.
 
 ---
 
