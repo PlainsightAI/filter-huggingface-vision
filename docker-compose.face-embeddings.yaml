@@ -13,7 +13,7 @@
 # Override the clip with VIDEO_PATH=/path/to/video.mp4.
 # Detector, identity, appearance, and landmark revisions default to commit SHAs.
 #
-#   docker compose -f docker-compose.face-embeddings.yaml up --build
+#   docker compose -f docker-compose.face-embeddings.yaml up
 #
 # Webvis: http://localhost:8016          (vision main)
 #         http://localhost:8016/viz      (boxes)
@@ -56,10 +56,8 @@ services:
     networks: [face-net]
 
   filter_huggingface_vision:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: filter-huggingface-vision:face-embeddings
+    # Published with this release. Tag matches VERSION without the leading v.
+    image: plainsightai/openfilter-huggingface-vision:0.4.18
     depends_on:
       - frame_dedup
     environment:
