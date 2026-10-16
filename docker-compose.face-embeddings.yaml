@@ -1,0 +1,143 @@
+# Face-embedding pipeline with frame dedup:
+#   VideoIn → FrameDedup → FilterHuggingfaceVision → Recorder / Webvis
+#
+# FrameDedup always forwards every frame on `main`. Unique keyframes are
+# published on the `deduped` side channel. The vision filter remaps
+# `deduped>main` so Grounding DINO / ArcFace / DINOv2 run only on uniques.
+#
+# Speed knobs:
+#   FILTER_MAXFPS_BY_INDEX  — subsample by frame index, not wall clock
+#   ZMQ_PUB_HWM             — high-water mark so pubs don't stall
+#   FILTER_SSIM_THRESHOLD   — keep a frame when its SSIM is at or below this.
+#                             0.95 keeps more near-duplicates than the filter
+#                             default of 0.90; a lower value drops more.
+#
+# Override the clip with VIDEO_PATH=/path/to/video.mp4.
+# Detector, identity, appearance, and landmark revisions default to commit SHAs.
+#
+# The vision service uses the released image
+# plainsightai/openfilter-huggingface-vision:0.4.18. Until the release
+# workflow publishes that tag, `up` fails with manifest-not-found.
+#
+#   docker compose -f docker-compose.face-embeddings.yaml up
+#
+# Webvis: http://localhost:8016          (vision main)
+#         http://localhost:8016/viz      (boxes)
+# JSONL:  ./output/face-embeddings.jsonl
+
+name: face-embeddings
+
+x-common-env: &common-env
+  DO_NOT_TRACK: ${DO_NOT_TRACK:-1}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  ZMQ_PUB_HWM: "${PUB_HWM:-2000}"
+
+services:
+  video_in:
+    image: containers.openfilter.io/plainsightai/openfilter-video-in:${VIDEO_IN_TAG:-1.4.0}
+    environment:
+      <<: *common-env
+      FILTER_ID: VideoIn
+      # by index, not wall clock: the reader subsamples and reads flat out. With
+      # plain maxfps a 15 min clip takes 15 min whatever the GPU does.
+      FILTER_SOURCES: "file:///video.mp4!maxfps=${VIDEO_MAXFPS:-1}!maxsize=1280x720"
+      FILTER_MAXFPS_BY_INDEX: "true"
+      FILTER_OUTPUTS: "tcp://*:5550"
+    volumes:
+      - ${VIDEO_PATH:-./filter_example_video.mp4}:/video.mp4:ro
+    networks: [face-net]
+
+  frame_dedup:
+    image: containers.openfilter.io/plainsightai/openfilter-frame-dedup:${DEDUP_TAG:-1.3.5}
+    depends_on:
+      - video_in
+    environment:
+      <<: *common-env
+      FILTER_ID: FrameDedup
+      FILTER_SOURCES: "tcp://video_in:5550"
+      FILTER_OUTPUTS: "tcp://*:5551"
+      FILTER_SSIM_THRESHOLD: "${DEDUP_SSIM_THRESHOLD:-0.95}"
+      FILTER_SAVE_IMAGES: "false"
+      FILTER_FORWARD_DEDUPED_FRAMES: "true"
+    networks: [face-net]
+
+  filter_huggingface_vision:
+    # Published with this release. Tag matches VERSION without the leading v.
+    image: plainsightai/openfilter-huggingface-vision:0.4.18
+    depends_on:
+      - frame_dedup
+    environment:
+      <<: *common-env
+      FILTER_ID: filter_huggingface_vision
+      # Remap the deduped side channel onto main.
+      FILTER_SOURCES: "tcp://frame_dedup:5551;deduped>main"
+      FILTER_OUTPUTS: "tcp://*:5552"
+      FILTER_DEVICE: cuda:0
+      NVIDIA_VISIBLE_DEVICES: "0"
+      FILTER_DETECTION_TYPE: open-vocabulary-grounding
+      FILTER_MODEL_ID: IDEA-Research/grounding-dino-tiny
+      FILTER_REVISION: ${DETECTOR_REVISION:-a2bb814dd30d776dcf7e30523b00659f4f141c71}
+      FILTER_TEXT_LABELS: face|||a face
+      FILTER_COLLAPSE_LABELS_TO: face
+      FILTER_THRESHOLD: ${FACE_THRESHOLD:-0.30}
+      FILTER_TEXT_THRESHOLD: ${FACE_THRESHOLD:-0.30}
+      FILTER_MAX_DETECTIONS: "20"
+      FILTER_EMBED_SCOPE: detections
+      FILTER_EMBEDDING_MODEL_ID: minchul/cvlface_arcface_ir101_webface4m
+      FILTER_EMBEDDING_REVISION: ${EMBEDDING_REVISION:-5846a5e96fbe1094952a414c78ce5b057c92d013}
+      FILTER_APPEARANCE_MODEL_ID: facebook/dinov2-small
+      FILTER_APPEARANCE_REVISION: ${APPEARANCE_REVISION:-ed25f3a31f01632728cabb09d1542f84ab7b0056}
+      FILTER_EMBED_CLASSES: face
+      FILTER_EMBED_ALIGN_CROPS: "true"
+      FILTER_LANDMARK_REVISION: ${LANDMARK_REVISION:-15191e03665fbf49e7610a1aee8d643f8a9119ca}
+      FILTER_EMBED_MIN_SCORE: ${EMBED_MIN_SCORE:-0.40}
+      FILTER_EMBED_MIN_BBOX_AREA: ${EMBED_MIN_BBOX_AREA:-1024}
+      FILTER_EMBED_MIN_SHARPNESS: ${EMBED_MIN_SHARPNESS:-20}
+      FILTER_EMBED_REJECT_BORDER: "true"
+      FILTER_DRAW_VISUALIZATION: "true"
+      FILTER_VISUALIZATION_TOPIC: viz
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    volumes:
+      - hf_cache:/app/models
+    networks: [face-net]
+
+  recorder:
+    image: containers.openfilter.io/plainsightai/openfilter-recorder:v0.1.10
+    platform: linux/amd64
+    depends_on:
+      - filter_huggingface_vision
+    environment:
+      <<: *common-env
+      FILTER_ID: recorder
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main
+      FILTER_OUTPUTS: file:///output/face-embeddings.jsonl
+      FILTER_RULES: "+"
+      FILTER_FLUSH: "true"
+    volumes:
+      - ./output:/output
+    networks: [face-net]
+
+  webvis:
+    image: plainsightai/openfilter-webvis:1.2.1
+    depends_on:
+      - filter_huggingface_vision
+    environment:
+      <<: *common-env
+      FILTER_ID: webvis
+      FILTER_SOURCES: tcp://filter_huggingface_vision:5552;main,tcp://filter_huggingface_vision:5552;viz
+      FILTER_PORT: "8016"
+    ports:
+      - "8016:8016"
+    networks: [face-net]
+
+networks:
+  face-net:
+
+volumes:
+  hf_cache:

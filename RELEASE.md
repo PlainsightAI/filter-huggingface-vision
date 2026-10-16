@@ -3,9 +3,23 @@ Huggingface Vision filter release notes
 
 ## [Unreleased]
 
+## v0.4.18 - 2026-10-14
+
+### Added
+
+- `embed_scope` (`frame`, `detections`, or `both`) publishes an L2-normalized embedding for the whole frame, for the classes listed in `embed_classes`, or for both in one pass. `embedding_model_id` is the crop model. `appearance_model_id`, when set, adds a second vector on that same crop. A detection that fails the score, area, border, or sharpness gate is left without a vector. Area is in pixels squared and defaults to `1024`; a value between 0 and 1 is rejected, and `0` turns the gate off. Sharpness defaults to Laplacian variance `20`; `0` turns it off. `embed_classes` must be a non-empty list. `embed_max_detections` (`0` means no cap) keeps the highest-scoring crops. Crops that pass share one forward per model.
+- `embedding_revision` and `appearance_revision` pin those models. Each is required when that model is not the detector. The detector pin is reused only for the same model id, so a detector commit SHA is not sent to another repo and an omitted pin does not fall back to `main`.
+- With `embed_align_crops`, each selected face is aligned by a local RetinaFace (five landmarks, no Hub code) onto the ArcFace 112 square and embedded by a local IResNet (`ir18` through `ir200`, including `minchul/cvlface_arcface_ir101_webface4m`). A face with no matched landmarks, or a crop that is not square, is left without vectors. `appearance_model_id` still adds a second vector from the unaligned crop for visual similarity. An appearance model that this scope would not publish is rejected at config time. `embed_scope` that publishes a frame vector (`frame` or `both`) together with `embed_align_crops` requires `appearance_model_id`, so the identity repo is not loaded a second time as a whole-frame embedder. `landmark_revision` pins the RetinaFace weights (default: a commit SHA, not `main`). `trust_remote_code` stays refused.
+
 ### Changed
 
-- Bump the openfilter dependency to 1.5.1
+- A whole-frame `embedding` is L2-normalized before it is published. Exemplar distance is still computed on the raw vector, so it cannot be recomputed from the published list.
+- Depend on openfilter 1.5.1.
+
+### Fixed
+
+- The face-embedding image creates `/app/models` as `appuser`, so a fresh `hf_cache` volume mounted there is writable. A volume created before this fix stays root-owned and has to be recreated.
+- Loading an ArcFace identity repo through `EmbeddingBackend` (no `embed_align_crops`) raises an error that names the missing flag, instead of a bare missing-`preprocessor_config.json` `OSError`.
 
 ## v0.4.17 - 2026-10-01
 

@@ -74,6 +74,28 @@ def _find_penultimate_module(model: nn.Module) -> nn.Module:
     return last_non_head if last_non_head is not None else children[-1][1]
 
 
+def _pool_rows(tensor: torch.Tensor) -> torch.Tensor:
+    """Reduce a feature tensor to ``(batch, dim)``, keeping every row."""
+    if tensor.dim() == 1:
+        return tensor.unsqueeze(0)
+    if tensor.dim() == 2:
+        return tensor
+    if tensor.dim() == 3:
+        # (B, seq, hidden) — CLS token
+        return tensor[:, 0]
+    if tensor.dim() == 4:
+        _b, dim1, _dim2, dim3 = tensor.shape
+        if dim1 == dim3:
+            logger.warning(
+                "Ambiguous 4D tensor shape %s — dim1 == dim3, assuming channels-first.",
+                tensor.shape,
+            )
+        if dim1 >= dim3:
+            return tensor.mean(dim=(-2, -1))
+        return tensor.mean(dim=(1, 2))
+    return tensor.reshape(tensor.shape[0], -1)
+
+
 def _pool_embedding(tensor: torch.Tensor) -> torch.Tensor:
     """Reduce an arbitrary-shape feature tensor to a 1-D embedding vector.
 
@@ -83,28 +105,41 @@ def _pool_embedding(tensor: torch.Tensor) -> torch.Tensor:
     - (B, D, H, W)     -> global average pool over spatial dims
     - (B, H, W, D)     -> channels-last, global average pool
     """
-    if tensor.dim() == 2:
-        return tensor[0]
-    if tensor.dim() == 3:
-        # (B, seq_len, hidden) — take CLS token
-        return tensor[0, 0]
-    if tensor.dim() == 4:
-        b, dim1, dim2, dim3 = tensor.shape
-        # Heuristic: channels-first if dim1 > dim3 (e.g. (B,768,14,14) has
-        # 768 > 14 so channels-first; (B,14,14,768) has 14 < 768 so channels-last).
-        if dim1 == dim3:
-            logger.warning(
-                "Ambiguous 4D tensor shape %s — dim1 == dim3, assuming channels-first.",
-                tensor.shape,
+    return _pool_rows(tensor)[0]
+
+
+def _recognition_vector(outputs) -> torch.Tensor:
+    """Return a ``(batch, dim)`` identity embedding.
+
+    Accepts a raw tensor of that shape, or an ``embeddings`` / ``embedding``
+    attribute of that shape. ``logits``, ``pooler_output``, and
+    ``last_hidden_state`` are feature maps or class scores, not a recognition
+    embedding, so they are refused instead of pooled.
+    """
+    if isinstance(outputs, torch.Tensor):
+        tensor = outputs
+    else:
+        tensor = None
+        for name in ("embeddings", "embedding"):
+            value = getattr(outputs, name, None)
+            if isinstance(value, torch.Tensor):
+                tensor = value
+                break
+        if tensor is None:
+            raise ValueError(
+                "embedding_head='output' requires a (batch, dim) recognition "
+                "vector on the forward return (a tensor, or an .embeddings / "
+                ".embedding attribute). logits, pooler_output, and "
+                "last_hidden_state are not identity embeddings."
             )
-        if dim1 >= dim3:
-            # channels-first: (B, D, H, W)
-            return tensor[0].mean(dim=(-2, -1))
-        else:
-            # channels-last: (B, H, W, D)
-            return tensor[0].mean(dim=(0, 1))
-    # Fallback: flatten and hope for the best
-    return tensor[0].flatten()
+    if tensor.dim() == 1:
+        tensor = tensor.unsqueeze(0)
+    if tensor.dim() != 2 or tensor.shape[1] == 0:
+        raise ValueError(
+            "The recognition vector must have shape (batch, dim); "
+            f"got {tuple(tensor.shape)}."
+        )
+    return tensor
 
 
 class EmbeddingBackend(VisionBackend):
@@ -123,6 +158,11 @@ class EmbeddingBackend(VisionBackend):
         self._model_loader = get_config_value(config, "model_loader", "transformers")
         self._hook_handle = None
         self._hooked_output = {}
+        # Set before the model load so a face-identity checkpoint skips the hook.
+        head = str(get_config_value(config, "embedding_head", "penultimate") or "penultimate")
+        if head not in ("penultimate", "output"):
+            raise ValueError("embedding_head must be 'penultimate' or 'output'.")
+        self._embedding_head = head
 
         if self._model_loader == "transformers":
             self._load_transformers(model_id, revision)
@@ -147,6 +187,8 @@ class EmbeddingBackend(VisionBackend):
 
         self._output_embeddings = get_config_value(config, "output_embeddings", True)
         self._output_distances = get_config_value(config, "output_distances", True)
+        if self._embedding_head == "output":
+            self._require_recognition_forward(model_id)
 
         logger.info(
             "EmbeddingBackend loaded model_id=%s revision=%s loader=%s device=%s",
@@ -164,9 +206,22 @@ class EmbeddingBackend(VisionBackend):
         """Load a HuggingFace model, preferring headless, falling back to headed + hook."""
         from transformers import AutoImageProcessor
 
-        self._processor = AutoImageProcessor.from_pretrained(
-            model_id, revision=revision, trust_remote_code=False
-        )
+        try:
+            self._processor = AutoImageProcessor.from_pretrained(
+                model_id, revision=revision, trust_remote_code=False
+            )
+        except OSError as exc:
+            # An ArcFace identity repo has weights and no image processor.
+            # Without this hint, setup dies on preprocessor_config.json and
+            # the missing embed_align_crops flag is not named.
+            if "preprocessor_config.json" in str(exc):
+                raise RuntimeError(
+                    f"'{model_id}@{revision}' has no preprocessor_config.json, so "
+                    "EmbeddingBackend cannot load it. An ArcFace identity checkpoint "
+                    "needs embed_align_crops=true, which loads those weights with the "
+                    f"local IResNet. Detail: {exc}"
+                ) from exc
+            raise
 
         import transformers
 
@@ -195,6 +250,16 @@ class EmbeddingBackend(VisionBackend):
         model = model.to(self._device)
         model.eval()
         self._model = model
+
+        # Identity checkpoints publish the recognition vector from forward.
+        # A penultimate hook would keep the map before that vector.
+        if getattr(self, "_embedding_head", "penultimate") == "output":
+            self._uses_hook = False
+            logger.info(
+                "Using model forward output as the embedding (loaded via %s)",
+                cls_name,
+            )
+            return
 
         # If we loaded a headed model (not plain AutoModel), install a hook
         # on the penultimate layer to capture features before the head.
@@ -288,39 +353,76 @@ class EmbeddingBackend(VisionBackend):
     # Inference
     # ------------------------------------------------------------------
 
-    def run(self, image_pil, width, height, config):
-        """Extract embedding from image.
+    def _require_recognition_forward(self, model_id: str) -> None:
+        """Fail at load when the checkpoint does not publish an identity vector."""
+        from PIL import Image
 
-        Returns ``{"embeddings": {"embedding": [...], ...}}``.
-        """
+        probe = Image.new("RGB", (112, 112), (127, 127, 127))
+        try:
+            self.vector(probe)
+        except ValueError as exc:
+            raise ValueError(
+                f"{model_id} did not return a (batch, dim) recognition vector. "
+                "Point embedding_model_id at a checkpoint whose forward returns "
+                "that embedding. logits, pooler_output, and last_hidden_state "
+                "are not identity embeddings."
+            ) from exc
+
+    def vectors(self, images) -> list[np.ndarray]:
+        """Embed every image in one forward. Each row is 1-D, not yet L2-normalized."""
+        images = list(images)
+        if not images:
+            return []
+        rows = self._embed_rows(images)
+        if rows.shape[0] != len(images):
+            raise ValueError(
+                f"Embedding forward returned {rows.shape[0]} rows for {len(images)} images."
+            )
+        return [np.asarray(row, dtype=np.float32).reshape(-1) for row in rows]
+
+    def vector(self, image_pil) -> np.ndarray:
+        """Return the 1-D feature vector for one image, before L2 normalization."""
+        return self.vectors([image_pil])[0]
+
+    def _embed_rows(self, images) -> np.ndarray:
         self._hooked_output.clear()
-
+        identity = getattr(self, "_embedding_head", "penultimate") == "output"
         with torch.no_grad():
             if self._model_loader == "transformers":
-                inputs = self._processor(images=image_pil, return_tensors="pt")
+                batch = images if len(images) > 1 else images[0]
+                inputs = self._processor(images=batch, return_tensors="pt")
                 inputs = {k: v.to(self._device) for k, v in inputs.items()}
                 outputs = self._model(**inputs)
-
-                if self._uses_hook and "features" in self._hooked_output:
-                    raw = self._hooked_output["features"]
-                elif hasattr(outputs, "last_hidden_state"):
-                    raw = outputs.last_hidden_state
-                elif hasattr(outputs, "pooler_output") and outputs.pooler_output is not None:
-                    raw = outputs.pooler_output
+                if identity:
+                    tensor = _recognition_vector(outputs)
+                elif self._uses_hook and "features" in self._hooked_output:
+                    tensor = _pool_rows(self._hooked_output["features"])
+                elif getattr(outputs, "last_hidden_state", None) is not None:
+                    tensor = _pool_rows(outputs.last_hidden_state)
+                elif getattr(outputs, "pooler_output", None) is not None:
+                    tensor = _pool_rows(outputs.pooler_output)
                 else:
                     raise ValueError(
                         "Could not extract embedding from model output. "
                         "The model may not be supported."
                     )
-
-                embedding = _pool_embedding(raw).cpu().numpy()
-
             elif self._model_loader == "timm":
-                tensor = self._processor(image_pil).unsqueeze(0).to(self._device)
-                raw = self._model(tensor)
-                embedding = _pool_embedding(raw).cpu().numpy()
+                stacked = torch.stack([self._processor(image) for image in images]).to(self._device)
+                raw = self._model(stacked)
+                tensor = _recognition_vector(raw) if identity else _pool_rows(raw)
+            else:
+                raise ValueError(
+                    f"Invalid model_loader: {self._model_loader}. "
+                    "Must be 'transformers' or 'timm'."
+                )
+        return tensor.detach().cpu().numpy()
 
-        embedding = embedding.squeeze()
+    def run(self, image_pil, width, height, config):
+        """Extract embedding from image.
+
+        Returns ``{"embeddings": {"embedding": [...], ...}}``.
+        """
+        embedding = self.vector(image_pil)
 
         result = {"embeddings": {}}
 

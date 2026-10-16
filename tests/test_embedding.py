@@ -178,7 +178,9 @@ class TestEmbeddingFilter(unittest.TestCase):
         finally:
             f.shutdown()
 
-        self.assertEqual(frame.data["embedding"], fake)
+        norm = sum(v * v for v in frame.data["embedding"]) ** 0.5
+        self.assertAlmostEqual(norm, 1.0, places=5)
+        self.assertEqual(frame.data["meta"]["embedding_model"], "facebook/dinov2-small")
         self.assertEqual(frame.data["meta"]["detection_type"], "embedding")
         self.assertEqual(frame.data["meta"]["task"], "embedding")
 
