@@ -5,13 +5,20 @@
 # published on the `deduped` side channel. The vision filter remaps
 # `deduped>main` so Grounding DINO / ArcFace / DINOv2 run only on uniques.
 #
-# Speed knobs aligned with internal-fdc batch pipelines:
+# Speed knobs:
 #   FILTER_MAXFPS_BY_INDEX  — subsample by frame index, not wall clock
 #   ZMQ_PUB_HWM             — high-water mark so pubs don't stall
-#   FILTER_SSIM_THRESHOLD   — aggressive near-duplicate drop (default 0.95)
+#   FILTER_SSIM_THRESHOLD   — keep a frame when its SSIM is at or below this.
+#                             0.95 keeps more near-duplicates than the filter
+#                             default of 0.90; a lower value drops more.
+#   FILTER_MIN_TIME_BETWEEN_FRAMES — 0, so hash dedup is not gated on wall clock
 #
 # Override the clip with VIDEO_PATH=/path/to/video.mp4.
 # Detector, identity, appearance, and landmark revisions default to commit SHAs.
+#
+# The vision service uses the released image
+# plainsightai/openfilter-huggingface-vision:0.4.18. Until the release
+# workflow publishes that tag, `up` fails with manifest-not-found.
 #
 #   docker compose -f docker-compose.face-embeddings.yaml up
 #
@@ -51,6 +58,10 @@ services:
       FILTER_SOURCES: "tcp://video_in:5550"
       FILTER_OUTPUTS: "tcp://*:5551"
       FILTER_SSIM_THRESHOLD: "${DEDUP_SSIM_THRESHOLD:-0.95}"
+      # hash_dedup's default is 1.0s of wall clock between accepted frames,
+      # which caps keyframes at ~1/s and undoes FILTER_MAXFPS_BY_INDEX.
+      # 0 disables that gate; only a negative value is rejected.
+      FILTER_MIN_TIME_BETWEEN_FRAMES: "0"
       FILTER_SAVE_IMAGES: "false"
       FILTER_FORWARD_DEDUPED_FRAMES: "true"
     networks: [face-net]
@@ -63,7 +74,7 @@ services:
     environment:
       <<: *common-env
       FILTER_ID: filter_huggingface_vision
-      # Remap deduped → main (same pattern as internal-fdc DEIMv2 worker).
+      # Remap the deduped side channel onto main.
       FILTER_SOURCES: "tcp://frame_dedup:5551;deduped>main"
       FILTER_OUTPUTS: "tcp://*:5552"
       FILTER_DEVICE: cuda:0
@@ -90,8 +101,6 @@ services:
       FILTER_EMBED_REJECT_BORDER: "true"
       FILTER_DRAW_VISUALIZATION: "true"
       FILTER_VISUALIZATION_TOPIC: viz
-      FILTER_LOCAL_SHUTDOWN_TIMEOUT_S: "${VISION_SHUTDOWN_TIMEOUT_S:-900}"
-      FILTER_SHUTDOWN_DRAIN_MAX: "${VISION_DRAIN_MAX:-100000}"
     deploy:
       resources:
         reservations:
