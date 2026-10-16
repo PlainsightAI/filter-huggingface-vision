@@ -1135,7 +1135,10 @@ class FilterHuggingfaceVision(Filter):
                 incoming_data = getattr(main_frame_for_viz, "data", None) or {}
                 viz_meta = {"meta": copy.deepcopy(incoming_data.get("meta", {}))}
                 _apply_meta(viz_meta["meta"], main_frame_payload, config)
-                frames[viz_topic] = Frame(vis_image, viz_meta, "BGR")
+                drawn = Frame(vis_image, viz_meta, "BGR")
+                if hasattr(drawn, "copy_clock"):
+                    drawn.copy_clock(main_frame_for_viz)
+                frames[viz_topic] = drawn
 
         return frames
 
