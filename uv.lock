@@ -815,7 +815,7 @@ requires-dist = [
     { name = "gcsfs", marker = "extra == 'gcs'", specifier = ">=2023.1.0" },
     { name = "huggingface-hub", specifier = ">=0.23" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==7.0.0" },
-    { name = "openfilter", extras = ["all"], specifier = ">=1.5.1,<2.0.0" },
+    { name = "openfilter", extras = ["all"], specifier = ">=1.5.2,<2.0.0" },
     { name = "pillow" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.3" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
@@ -2030,7 +2030,7 @@ wheels = [
 
 [[package]]
 name = "openfilter"
-version = "1.5.1"
+version = "1.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
@@ -2056,7 +2056,7 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/4c/ec3868f82257dd2f54416881edbcbcd8242f29072f622ad93194aef20781/openfilter-1.5.1-py3-none-any.whl", hash = "sha256:142a127afe669de404df488217f0ad92aa94256ebd1451888278ca2e1e8c1ede", size = 237836, upload-time = "2026-10-01T18:17:51.476Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/36/3ea64e29e161f814f5e077d0533ca2fc68ecf9450f45423d04b8c82bb365/openfilter-1.5.2-py3-none-any.whl", hash = "sha256:60d94fee99efbd43f368a0956f83823362a5ecc1b149c505122e83021643788e", size = 243769, upload-time = "2026-10-27T23:39:12.63Z" },
 ]
 
 [package.optional-dependencies]
