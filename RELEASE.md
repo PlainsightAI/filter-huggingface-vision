@@ -6,6 +6,7 @@ Huggingface Vision filter release notes
 ### Changed
 
 - Bump the openfilter dependency to 1.5.2
+- **Breaking:** Drop support for Python 3.10; `requires-python` is now `>=3.11`. Pillow 13.0.0, the first release with fixes for several critical advisories, requires Python 3.11. The lock now pins pillow 13.0.0 and certifi 2026.10.23. The CI test matrix now runs 3.11–3.14.
 
 ## v0.4.18 - 2026-10-14
 
